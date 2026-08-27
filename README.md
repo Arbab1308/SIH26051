@@ -94,3 +94,11 @@ After running, the application will be hosted locally. Open your browser and nav
 
 *   **API Keys & Secrets**: The codebase has been scanned and contains no API keys, credentials, or private credentials. It runs entirely locally on local calculation engines.
 *   **Git Security**: A `.gitignore` file has been added to prevent local environment variables (`.env`), python cache (`__pycache__`), virtual environments (`venv/`), and PDF report downloads from being committed or pushed to Github.
+
+---
+
+## 📄 License & Copyright
+
+© 2026 Arbab1308. All rights reserved.
+This project is developed for the Smart India Hackathon (SIH26051). Unauthorized copying, distribution, or modification of this software is subject to copyright protection.
+
