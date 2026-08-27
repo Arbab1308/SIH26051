@@ -1,0 +1,356 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from fpdf import FPDF
+import base64
+from physics import (
+    calculate_heat_transfer, 
+    calculate_solar_gain, 
+    calculate_new_temperature,
+    calculate_external_surface_temp,
+    calculate_metabolic_heat,       
+    calculate_ventilation_loss,     
+    MATERIALS
+)
+
+st.set_page_config(page_title="Thermal Shelter Simulator", layout="wide")
+st.title("🏔️ Ladakh Thermal Shelter Simulator (SIH26051)")
+
+# Sidebar: Input Parameters
+st.sidebar.header("Shelter Configuration")
+
+# Shelter Dimensions
+shelter_length = st.sidebar.slider("Length (m)", 2.0, 15.0, 6.0)
+shelter_width = st.sidebar.slider("Width (m)", 2.0, 15.0, 4.0)
+shelter_height = st.sidebar.slider("Height (m)", 1.5, 5.0, 2.5)
+
+
+
+# Calculate areas and volume
+wall_area = 2 * (shelter_length + shelter_width) * shelter_height
+roof_area = shelter_length * shelter_width
+shelter_volume = shelter_length * shelter_width * shelter_height  # NEW: Needed for ventilation
+
+window_area = st.sidebar.slider("Window Area (m²)", 0.0, 10.0, 3.0)
+door_area = st.sidebar.slider("Door Area (m²)", 0.0, 5.0, 1.5)
+
+# NEW: Tactical & Biological Inputs
+st.sidebar.header("Tactical & Biological")
+occupants = st.sidebar.number_input("Number of Troops (Occupancy)", 0, 20, 5)
+ach = st.sidebar.slider("Ventilation (Air Changes/Hour)", 0.0, 3.0, 0.5, step=0.1)
+
+# Asphyxiation Warning Logic
+if ach < 0.3:
+    st.sidebar.error("⚠️ LETHAL HYPOXIA RISK: Ventilation is too low. CO2 buildup imminent.")
+elif ach > 1.5:
+    st.sidebar.warning("⚠️ SEVERE HEAT LOSS: High ventilation will drain thermal mass.")
+else:
+    st.sidebar.success("✅ Ventilation in safe operational range.")
+# Material Selection
+st.sidebar.header("Materials")
+wall_material = st.sidebar.selectbox("Wall Material", list(MATERIALS.keys()), index=1)  # Default: Brick
+roof_material = st.sidebar.selectbox("Roof Material", list(MATERIALS.keys()), index=3)  # Default: PUF
+window_material = st.sidebar.selectbox("Window Material", list(MATERIALS.keys()), index=4)  # Default: Glass
+
+# Initial Conditions
+st.sidebar.header("Initial Conditions")
+initial_temp = st.sidebar.slider("Initial Shelter Temperature (°C)", -30.0, 0.0, -5.0)
+
+# Load Weather Data
+st.sidebar.header("Weather Data")
+weather_file = st.file_uploader("Upload Ladakh Weather CSV", type=["csv"])
+
+if weather_file is None:
+    # Load default generated data
+    try:
+        weather_data = pd.read_csv("ladakh_winter.csv")
+        st.sidebar.info("Using generated Ladakh winter data")
+    except FileNotFoundError:
+        st.error("❌ Please run `python generate_data.py` first!")
+        st.stop()
+else:
+    weather_data = pd.read_csv(weather_file)
+
+# Extract weather columns
+hours = weather_data["Hour"].values
+outdoor_temps = weather_data["Temperature_C"].values
+solar_irradiance = weather_data["Solar_Irradiance_W_m2"].values
+
+# ============ SIMULATION ============
+st.header("🔬 Simulation Results")
+
+# Get material properties
+wall_props = MATERIALS[wall_material]
+roof_props = MATERIALS[roof_material]
+window_props = MATERIALS[window_material]
+
+# Calculate total thermal mass (simplified: use walls + roof only)
+total_mass = (wall_area * wall_props["density"] * 0.2 +  # 20cm thick walls
+              roof_area * roof_props["density"] * 0.15)    # 15cm thick roof
+total_specific_heat = (wall_props["specific_heat"] + roof_props["specific_heat"]) / 2
+
+# Simulate 24-hour cycle
+shelter_temps = [initial_temp]
+q_losses = []
+q_gains = []
+external_wall_temps = []
+
+current_temp = initial_temp
+
+for hour in range(24):
+    t_out = outdoor_temps[hour]
+    solar = solar_irradiance[hour]
+    
+    # Calculate how warm the outside wall gets for enemy IR scopes
+    t_surf = calculate_external_surface_temp(current_temp, t_out, wall_props["r_value"])
+    external_wall_temps.append(t_surf)
+    
+    # Heat transfers calculations
+    q_wall = calculate_heat_transfer(current_temp, t_out, wall_area, wall_props["r_value"])
+    
+  # Heat transfers calculations
+    q_wall = calculate_heat_transfer(current_temp, t_out, wall_area, wall_props["r_value"])
+    q_roof = calculate_heat_transfer(current_temp, t_out, roof_area, roof_props["r_value"])
+    q_window_loss = calculate_heat_transfer(current_temp, t_out, window_area, window_props["r_value"])
+    q_door = calculate_heat_transfer(current_temp, t_out, door_area, 0.1)
+    
+    # NEW: Ventilation Heat Loss
+    q_vent = calculate_ventilation_loss(current_temp, t_out, shelter_volume, ach)
+    
+    # NEW: Metabolic Heat Gain
+    q_human = calculate_metabolic_heat(occupants)
+    
+    # Calculate total loss and total gain
+    q_total_loss = q_wall + q_roof + q_window_loss + q_door + q_vent
+    q_solar = calculate_solar_gain(solar, window_area, absorptivity=0.7)
+    q_total_gain = q_solar + q_human  # Add human heat to total gain
+    
+    # Update temperature (Use q_total_gain instead of just q_solar)
+    new_temp = calculate_new_temperature(current_temp, q_total_gain, q_total_loss, total_mass, total_specific_heat)
+    
+    shelter_temps.append(new_temp)
+    q_losses.append(q_total_loss)
+    q_gains.append(q_total_gain)  # Track total combined gain for the charts
+    current_temp = new_temp
+
+shelter_temps = shelter_temps[:-1]  # Remove last point (24h mark already included)
+
+# ============ RESULTS ============
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.metric("🌡️ Min Temp (°C)", f"{min(shelter_temps):.1f}")
+with col2:
+    st.metric("🔥 Max Temp (°C)", f"{max(shelter_temps):.1f}")
+with col3:
+    comfort_hours = sum(1 for t in shelter_temps if t >= -10)
+    st.metric("😊 Comfort Hours (>-10°C)", f"{comfort_hours}/24")
+with col4:
+    avg_temp = np.mean(shelter_temps)
+    st.metric("📊 Avg Temp (°C)", f"{avg_temp:.1f}")
+
+# ============ INTERACTIVE PLOTLY GRAPHS ============
+st.markdown("---")
+plot_col1, plot_col2 = st.columns(2)
+
+with plot_col1:
+    # Plot 1: Temperature Comparison
+    fig1 = go.Figure()
+    fig1.add_trace(go.Scatter(x=hours, y=outdoor_temps, mode='lines+markers', name='Outside Temp', line=dict(color='#3498db')))
+    fig1.add_trace(go.Scatter(x=hours, y=shelter_temps, mode='lines+markers', name='Shelter Temp', line=dict(color='#e74c3c')))
+    fig1.add_hline(y=-10, line_dash="dash", line_color="#2ecc71", annotation_text="Comfort Threshold (-10°C)", annotation_position="bottom right")
+    fig1.update_layout(title="Temperature Profile: 24-Hour Cycle", xaxis_title="Hour of Day", yaxis_title="Temperature (°C)", hovermode="x unified")
+    st.plotly_chart(fig1, use_container_width=True)
+
+    # Plot 3: Solar Irradiance
+    fig3 = go.Figure()
+    fig3.add_trace(go.Scatter(x=hours, y=solar_irradiance, mode='lines+markers', name='Solar Irradiance', fill='tozeroy', line=dict(color='#f39c12'), fillcolor='rgba(243, 156, 18, 0.2)'))
+    fig3.update_layout(title="Solar Radiation Profile", xaxis_title="Hour of Day", yaxis_title="Solar Irradiance (W/m²)", hovermode="x unified")
+    st.plotly_chart(fig3, use_container_width=True)
+
+with plot_col2:
+    # Plot 2: Heat Gains vs Losses
+    fig2 = go.Figure()
+    fig2.add_trace(go.Bar(x=hours, y=q_gains, name='Solar Gain', marker_color='#f1c40f'))
+    fig2.add_trace(go.Bar(x=hours, y=[-q for q in q_losses], name='Heat Loss', marker_color='#00cec9'))
+    fig2.update_layout(title="Heat Gains vs Losses", xaxis_title="Hour of Day", yaxis_title="Heat Transfer (W)", barmode='relative', hovermode="x unified")
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # Plot 4: Comfort Analysis
+    fig4 = go.Figure()
+    comfort = [1 if t >= -10 else 0 for t in shelter_temps]
+    colors = ['#2ecc71' if c else '#e74c3c' for c in comfort]
+    hover_texts = [f"Hour {h}: {t:.1f}°C (Comfortable)" if c else f"Hour {h}: {t:.1f}°C (Cold)" for h, t, c in zip(hours, shelter_temps, comfort)]
+    fig4.add_trace(go.Bar(x=hours, y=[1]*24, marker_color=colors, hoverinfo="text", hovertext=hover_texts, showlegend=False))
+    fig4.update_layout(title="Comfort Hours (Green = Comfortable, Red = Cold)", xaxis_title="Hour of Day", yaxis_title="Comfort Status", yaxis=dict(tickvals=[0, 1], ticktext=["Cold", "Comfortable"]))
+    st.plotly_chart(fig4, use_container_width=True)
+
+# ============ MILITARY LOGISTICS & AIRLIFT ENGINE ============
+st.markdown("---")
+st.header("🚁 Logistics & Airlift Feasibility")
+
+# 1. Calculate Weights (assuming 20cm walls, 15cm roof, 1cm glass windows)
+wall_weight = wall_area * wall_props["density"] * 0.20
+roof_weight = roof_area * roof_props["density"] * 0.15
+window_weight = window_area * window_props["density"] * 0.01
+
+total_deployment_weight = wall_weight + roof_weight + window_weight
+
+# 2. Calculate Procurement Cost
+total_cost_inr = (
+    (wall_weight * wall_props["cost_per_kg"]) + 
+    (roof_weight * roof_props["cost_per_kg"]) + 
+    (window_weight * window_props["cost_per_kg"])
+)
+
+# 3. Helicopter Feasibility Logic (Indian Air Force Assets)
+airlift_status = ""
+airlift_color = ""
+
+if total_deployment_weight <= 1500:
+    airlift_status = "✅ HAL Dhruv (ALH) - Light Transport"
+    airlift_color = "normal"
+elif total_deployment_weight <= 4000:
+    airlift_status = "⚠️ Mi-17 V5 - Medium Transport"
+    airlift_color = "off"
+elif total_deployment_weight <= 10000:
+    airlift_status = "🚨 CH-47 Chinook - Heavy Lift Required"
+    airlift_color = "inverse"
+else:
+    airlift_status = "❌ AIRLIFT IMPOSSIBLE: Requires Road Transport (Convoy)"
+    airlift_color = "inverse"
+
+# Display Logistics Metrics
+log1, log2, log3 = st.columns(3)
+
+with log1:
+    st.metric("⚖️ Total Shelter Weight", f"{total_deployment_weight:,.0f} kg")
+with log2:
+    st.metric("💰 Est. Material Cost", f"₹ {total_cost_inr:,.0f}")
+with log3:
+    st.info(f"**Airlift Requirement:**\n\n{airlift_status}")
+    
+    # ============ TACTICAL THERMAL STEALTH ============
+st.markdown("---")
+st.header("🎯 Tactical Thermal Stealth (IR Signature)")
+
+# Calculate the maximum temperature difference between the wall and the outside air
+max_temp_diff = max([surf - amb for surf, amb in zip(external_wall_temps, outdoor_temps)])
+
+stealth_col1, stealth_col2 = st.columns([2, 1])
+
+with stealth_col1:
+    if max_temp_diff < 0.5:
+        st.success("🟢 EXCELLENT: Thermal signature is nearly invisible to enemy IR scopes.")
+    elif max_temp_diff < 2.0:
+        st.warning("🟡 MODERATE: Slight thermal blooming visible on high-res IR drones.")
+    else:
+        st.error("🔴 DANGER: High IR signature detected. Shelter is a glowing target.")
+
+with stealth_col2:
+    st.metric("Max External Wall Heat Glow", f"+{max_temp_diff:.2f} °C", delta_color="inverse")
+
+st.caption("Military Note: If the external wall is more than 0.5°C warmer than the ambient air, it can be detected by thermal imaging.")
+    
+# ============ CONFIGURATION SUMMARY ============
+st.markdown("---")
+st.header("📋 Configuration Summary")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Shelter Dimensions")
+    st.write(f"- **Length:** {shelter_length} m")
+    st.write(f"- **Width:** {shelter_width} m")
+    st.write(f"- **Height:** {shelter_height} m")
+    st.write(f"- **Wall Area:** {wall_area:.1f} m²")
+    st.write(f"- **Roof Area:** {roof_area:.1f} m²")
+    st.write(f"- **Window Area:** {window_area} m²")
+    st.write(f"- **Door Area:** {door_area} m²")
+
+with col2:
+    st.subheader("Material Properties")
+    st.write(f"- **Walls:** {wall_material} (R={wall_props['r_value']})")
+    st.write(f"- **Roof:** {roof_material} (R={roof_props['r_value']})")
+    st.write(f"- **Windows:** {window_material} (R={window_props['r_value']})")
+    st.write(f"- **Total Thermal Mass:** {total_mass:.0f} kg")
+
+# Export Results
+st.header("📥 Export Results")
+results_df = pd.DataFrame({
+    "Hour": hours,
+    "Outside_Temp_C": outdoor_temps,
+    "Shelter_Temp_C": shelter_temps,
+    "Solar_Irradiance_W_m2": solar_irradiance,
+    "Heat_Loss_W": q_losses,
+    "Solar_Gain_W": q_gains
+})
+
+csv = results_df.to_csv(index=False)
+st.download_button(label="Download Results as CSV", data=csv, file_name="shelter_simulation_results.csv", mime="text/csv")
+
+# ============  TACTICAL PDF EXPORTER ============
+st.markdown("---")
+st.header("📄 Commanding Officer's Dossier")
+
+def generate_pdf_report():
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Title
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt="DRDO Tactical Shelter Deployment Dossier", ln=True, align='C')
+    pdf.ln(10)
+    
+    # 1. Configuration
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="1. Shelter Configuration", ln=True)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(200, 8, txt=f"Dimensions: {shelter_length}m (L) x {shelter_width}m (W) x {shelter_height}m (H)", ln=True)
+    pdf.cell(200, 8, txt=f"Total Volume: {shelter_volume:.1f} cubic meters", ln=True)
+    pdf.cell(200, 8, txt=f"Occupancy: {occupants} Troops", ln=True)
+    pdf.cell(200, 8, txt=f"Ventilation Rate: {ach} Air Changes/Hour", ln=True)
+    pdf.ln(5)
+    
+    # 2. Materials
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="2. Material Specifications", ln=True)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(200, 8, txt=f"Wall Material: {wall_material} (R-Value: {wall_props['r_value']})", ln=True)
+    pdf.cell(200, 8, txt=f"Roof Material: {roof_material} (R-Value: {roof_props['r_value']})", ln=True)
+    pdf.ln(5)
+    
+    # 3. Thermal Performance
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="3. 24-Hour Thermal Survival Performance", ln=True)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(200, 8, txt=f"Minimum Internal Temperature: {min(shelter_temps):.1f} C", ln=True)
+    pdf.cell(200, 8, txt=f"Maximum Internal Temperature: {max(shelter_temps):.1f} C", ln=True)
+    pdf.cell(200, 8, txt=f"Comfortable Hours (Above -10 C): {comfort_hours} / 24", ln=True)
+    pdf.ln(5)
+    
+    # 4. Logistics & Stealth
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="4. Military Logistics & Stealth Capabilities", ln=True)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(200, 8, txt=f"Total Deployment Weight: {total_deployment_weight:,.0f} kg", ln=True)
+    pdf.cell(200, 8, txt=f"Estimated Material Cost: INR {total_cost_inr:,.0f}", ln=True)
+    pdf.cell(200, 8, txt=f"Airlift Feasibility: {airlift_status.replace('✅', '').replace('⚠️', '').replace('🚨', '').replace('❌', '').strip()}", ln=True)
+    
+    stealth_rating = "EXCELLENT" if max_temp_diff < 0.5 else ("MODERATE" if max_temp_diff < 2.0 else "DANGER (Glowing Target)")
+    pdf.cell(200, 8, txt=f"Max External Wall Heat Glow: +{max_temp_diff:.2f} C above ambient", ln=True)
+    pdf.cell(200, 8, txt=f"Thermal Stealth Rating: {stealth_rating}", ln=True)
+    
+    # Output to string for Streamlit download
+    return pdf.output(dest="S").encode("latin-1")
+
+# Adding  the Download Button to the UI
+pdf_bytes = generate_pdf_report()
+
+st.download_button(
+    label="📥 Download Tactical Dossier (PDF)",
+    data=pdf_bytes,
+    file_name="DRDO_Shelter_Dossier.pdf",
+    mime="application/pdf"
+)
