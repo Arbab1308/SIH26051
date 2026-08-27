@@ -90,18 +90,40 @@ After running, the application will be hosted locally. Open your browser and nav
     *   Download raw simulation metrics as a `.csv` file.
     *   Generate and download a formal **Commanding Officer's Dossier** as a PDF containing deployment specs and stealth ratings.
 7.  **🧬 Inverse AI Generative Designer (NSGA-II)**:
-    *   Uses the `pymoo` multi-objective optimization framework to evolve optimal shelter material combinations.
-    *   **3 Objectives**: Minimize weight, minimize cost, maximize minimum internal temperature.
-    *   **3 Constraints**: Max payload (kg), max budget (INR), max IR glow (°C) — all configurable via sidebar sliders.
-    *   Evaluates **5,000+ shelter permutations** (100 population × 50 generations) using the full 24-hour thermal simulation loop.
-    *   Displays **Top 3 Pareto-optimal Blueprints** with comparison tables, expandable detail cards, and per-blueprint thermal profile charts.
+    Instead of hardcoding material choices, this feature uses a Genetic Algorithm to evolve the perfect shelter using `pymoo`, a standard Python framework for multi-objective optimization.
+    *   **Phase 1.1: Dependency & Search Space Setup**
+        *   Installed `pymoo` optimization engine.
+        *   Expanded the `MATERIALS` dictionary in `physics.py` to include 20 different material choices for walls, roofs, and windows (e.g., Aerogel, Kevlar, Carbon Fiber, standard fabrics).
+        *   Mapped each material to an integer index so the algorithm can genetically mutate arrays of integers representing a "shelter blueprint."
+    *   **Phase 1.2: The Fitness Evaluation Function**
+        *   Created `optimize.py` script containing the optimization engine.
+        *   Defined a custom problem class inheriting from `pymoo.core.problem.Problem`.
+        *   Set objectives: $f_1$ (Minimize Total Weight), $f_2$ (Minimize Total Cost), and $f_3$ (Maximize Minimum Internal Temperature).
+        *   Set constraints: $g_1$ (Weight < Max Payload), $g_2$ (Cost < Max Budget), and $g_3$ (Max External Glow < Max IR Glow).
+        *   The fitness function runs the 24-hour thermodynamic simulator (`calculate_new_temperature` loop) for every genetic mutation to evaluate its survivability.
+    *   **Phase 1.3: Algorithm Execution & UI Integration**
+        *   Initializes the NSGA-II algorithm with a configurable population size (default 100) and generations (default 50) for 5,000+ total permutations.
+        *   Integrated an "AI Auto-Designer" sidebar section in `app.py`.
+        *   Provided sliders for the user to set their hard constraints (Max Budget, Max Payload).
+        *   Triggers the `pymoo` engine via a button click and displays the "Top 3 Optimal Blueprints" using Streamlit's expanders, dataframe tables, and temperature curves.
+
 8.  **🗺️ Real-Time Topographical Shadow Mapping**:
-    *   Uses `pysolar` to calculate the sun's exact altitude and azimuth for every hour based on GPS coordinates and deployment date.
-    *   Fetches live terrain elevation data via the **Open-Elevation API** in a radial pattern (36 azimuths × 6 distances = 216 sample points) around the deployment site.
-    *   Computes **horizon angles** using trigonometry and applies a **ray-casting algorithm**: if `Sun_Altitude < Mountain_Horizon_Angle`, the shelter is in topographical shadow.
-    *   Shadowed hours receive only **10% diffuse sky radiation** (eliminating direct sunlight), dramatically reducing solar heat gain.
-    *   Visualizations include: Sun Path vs Mountain Horizon chart, Shadow Timeline bar, and Original vs Modified irradiance overlay.
-    *   Default coordinates: **Leh, Ladakh (34.1526°N, 77.5771°E)**.
+    To execute immediate, real-time data analysis based on physical terrain, this feature replaces the standard solar curve with a dynamic API fetching and shadow computation pipeline.
+    *   **Phase 2.1: Real-Time Sun Positioning**
+        *   Installed the astronomical calculation library `pysolar`.
+        *   Inputs the exact deployment GPS coordinates (Latitude, Longitude) and the current real-time date.
+        *   Calculates the Sun's exact Altitude (angle above horizon) and Azimuth (compass direction) for every hour of the 24-hour cycle.
+    *   **Phase 2.2: Live Topographical Data Ingestion**
+        *   Uses the Open-Elevation API to fetch live elevation profiles.
+        *   Queries a radial pattern (36 azimuth angles × 6 distance rings = 216 sample points) in a 5-kilometer radius around the deployment coordinates.
+    *   **Phase 2.3: Shadow Masking (Ray-Casting Algorithm)**
+        *   Calculates the "Horizon Angle" of the surrounding mountains using trigonometry: $\theta_{horizon} = \arctan(\text{Mountain Height relative to deployment site} / \text{Distance to Mountain})$.
+        *   Compares the Sun's Altitude against the Terrain Horizon Angle for each hour.
+        *   If `Sun_Altitude < Mountain_Horizon_Angle`, the shelter is in a topographical shadow.
+    *   **Phase 2.4: Irradiance Curve Modification**
+        *   Applies a shadow mask multiplier (0.1) to the solar irradiance array for shadowed hours, accounting only for diffuse sky radiation and eliminating direct sunlight.
+        *   Passes the modified solar irradiance profile into the existing thermodynamic engine to instantly reflect the massive heat loss caused by mountain shadows.
+
 
 ---
 
