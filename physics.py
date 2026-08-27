@@ -53,15 +53,58 @@ def calculate_external_surface_temp(t_inside, t_outside, r_value, h_ext=25):
     t_surf = t_outside + (t_inside - t_outside) / (r_value * h_ext)
     return t_surf
 
-# --- Material Database ---
+# --- Material Database (Expanded for AI Optimizer) ---
 # Values: [R-Value (m²K/W), Density (kg/m³), Specific Heat (J/kg·K), Cost (INR/kg)]
 MATERIALS = {
-    "Concrete": {"r_value": 0.20, "density": 2400, "specific_heat": 840, "cost_per_kg": 5},
-    "Brick": {"r_value": 0.30, "density": 1900, "specific_heat": 840, "cost_per_kg": 4},
-    "Wood": {"r_value": 1.00, "density": 600, "specific_heat": 1200, "cost_per_kg": 40},
-    "Polyurethane Panel (PUF)": {"r_value": 5.00, "density": 50, "specific_heat": 1400, "cost_per_kg": 250},
-    "Glass (Single Pane)": {"r_value": 0.15, "density": 2500, "specific_heat": 750, "cost_per_kg": 60},
+    # === WALL MATERIALS ===
+    "Concrete":                     {"r_value": 0.20, "density": 2400, "specific_heat": 840,  "cost_per_kg": 5},
+    "Brick":                        {"r_value": 0.30, "density": 1900, "specific_heat": 840,  "cost_per_kg": 4},
+    "Wood":                         {"r_value": 1.00, "density": 600,  "specific_heat": 1200, "cost_per_kg": 40},
+    "Polyurethane Panel (PUF)":     {"r_value": 5.00, "density": 50,   "specific_heat": 1400, "cost_per_kg": 250},
+    "Aerogel Composite":            {"r_value": 10.0, "density": 120,  "specific_heat": 1000, "cost_per_kg": 1800},
+    "Kevlar Sandwich Panel":        {"r_value": 2.50, "density": 180,  "specific_heat": 1100, "cost_per_kg": 3500},
+    "Carbon Fiber Panel":           {"r_value": 1.80, "density": 160,  "specific_heat": 800,  "cost_per_kg": 4000},
+    "Stone Wool (Rockwool)":        {"r_value": 3.80, "density": 100,  "specific_heat": 840,  "cost_per_kg": 80},
+    "EPS Foam (Thermocol)":         {"r_value": 3.50, "density": 25,   "specific_heat": 1300, "cost_per_kg": 120},
+    "XPS Foam (Extruded)":          {"r_value": 4.20, "density": 35,   "specific_heat": 1350, "cost_per_kg": 150},
+    "Fiberglass Batt":              {"r_value": 3.20, "density": 12,   "specific_heat": 700,  "cost_per_kg": 90},
+    "Mud Brick (Adobe)":            {"r_value": 0.40, "density": 1500, "specific_heat": 900,  "cost_per_kg": 2},
+    "Steel Sheet (Corrugated)":     {"r_value": 0.05, "density": 7800, "specific_heat": 500,  "cost_per_kg": 55},
+    "Aluminium Composite":          {"r_value": 0.10, "density": 2700, "specific_heat": 900,  "cost_per_kg": 180},
+    "Bamboo Composite":             {"r_value": 0.90, "density": 400,  "specific_heat": 1100, "cost_per_kg": 25},
+    "HDPE Fabric (Heavy Duty)":     {"r_value": 0.60, "density": 150,  "specific_heat": 1800, "cost_per_kg": 200},
+    "Nomex Honeycomb":              {"r_value": 2.00, "density": 48,   "specific_heat": 1200, "cost_per_kg": 5500},
+    # === WINDOW / GLAZING MATERIALS ===
+    "Glass (Single Pane)":          {"r_value": 0.15, "density": 2500, "specific_heat": 750,  "cost_per_kg": 60},
+    "Glass (Double Pane)":          {"r_value": 0.35, "density": 2500, "specific_heat": 750,  "cost_per_kg": 120},
+    "Polycarbonate Sheet":          {"r_value": 0.28, "density": 1200, "specific_heat": 1200, "cost_per_kg": 250},
 }
+
+# --- Integer-Indexed Material Lookup for Genetic Algorithm ---
+MATERIAL_LIST = list(MATERIALS.keys())
+
+# Materials suitable for walls (index -> name)
+WALL_MATERIALS = [
+    "Concrete", "Brick", "Wood", "Polyurethane Panel (PUF)",
+    "Aerogel Composite", "Kevlar Sandwich Panel", "Carbon Fiber Panel",
+    "Stone Wool (Rockwool)", "EPS Foam (Thermocol)", "XPS Foam (Extruded)",
+    "Fiberglass Batt", "Mud Brick (Adobe)", "Steel Sheet (Corrugated)",
+    "Aluminium Composite", "Bamboo Composite", "HDPE Fabric (Heavy Duty)",
+    "Nomex Honeycomb",
+]
+
+# Materials suitable for roofs (index -> name)
+ROOF_MATERIALS = [
+    "Concrete", "Wood", "Polyurethane Panel (PUF)", "Steel Sheet (Corrugated)",
+    "EPS Foam (Thermocol)", "XPS Foam (Extruded)", "Fiberglass Batt",
+    "Aluminium Composite", "Carbon Fiber Panel", "Nomex Honeycomb",
+    "Stone Wool (Rockwool)", "Kevlar Sandwich Panel",
+]
+
+# Materials suitable for windows / glazing (index -> name)
+WINDOW_MATERIALS = [
+    "Glass (Single Pane)", "Glass (Double Pane)", "Polycarbonate Sheet",
+]
 
 
 def calculate_metabolic_heat(occupants, watts_per_person=100):

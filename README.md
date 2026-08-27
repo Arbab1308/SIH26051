@@ -66,11 +66,12 @@ After running, the application will be hosted locally. Open your browser and nav
 
 ## 🛠️ Project Architecture & Files
 
-*   `app.py`: The main Streamlit application containing the UI, plotting logic, logistics calculators, and report exporters.
-*   `physics.py`: The core thermodynamic library implementing heat transfer (conduction, solar radiation, metabolic heat, ventilation loss) and thermal signature equations.
+*   `app.py`: The main Streamlit application containing the UI, plotting logic, logistics calculators, AI optimizer integration, and report exporters.
+*   `physics.py`: The core thermodynamic library implementing heat transfer (conduction, solar radiation, metabolic heat, ventilation loss), thermal signature equations, and the expanded 20-material database with integer-indexed lookup tables.
+*   `optimize.py`: The **Inverse AI Generative Designer** — a multi-objective NSGA-II optimizer (via `pymoo`) that evolves optimal shelter material blueprints across 3 objectives and 3 constraints.
 *   `generate_data.py`: A helper script simulating weather conditions (ambient temp, solar irradiance, humidity) for a winter day in Ladakh.
 *   `ladakh_winter.csv`: The default generated weather dataset.
-*   `requirements.txt`: Python package dependencies.
+*   `requirements.txt`: Python package dependencies (including `pymoo` for the AI optimizer).
 *   `.gitignore`: Prevents temporary cache, virtual environments (`venv`), and sensitive environment files from being tracked by Git.
 
 ---
@@ -81,12 +82,18 @@ After running, the application will be hosted locally. Open your browser and nav
 2.  **Tactical & Biological Inputs**:
     *   **Troops Count**: Accounts for metabolic heat output (~100W per person).
     *   **Ventilation Rate**: Slider for Air Changes per Hour (ACH) with built-in safety alerts (e.g., *Asphyxiation / Hypoxia warning* if ventilation is too low (< 0.3 ACH) or *Severe heat loss warning* if too high (> 1.5 ACH)).
-3.  **Material Selection Database**: Real-world military insulation and construction materials (Brick, Wood, PUF Panels, Concrete, Glass) with exact R-Values, density, specific heat capacities, and cost metrics.
+3.  **Material Selection Database**: 20 real-world military insulation and construction materials (Aerogel, Kevlar, Carbon Fiber, PUF, Rockwool, Nomex, HDPE, etc.) with exact R-Values, density, specific heat capacities, and cost metrics.
 4.  **Stealth (IR Signature) Assessment**: Automatically evaluates whether the external wall surface temperature will exceed ambient temperature enough to bloom on enemy thermal imaging / infrared scopes.
 5.  **Logistics Engine**: Weighs the shelter materials and calculates transport feasibility using Indian Air Force (IAF) aircraft assets (HAL Dhruv, Mi-17 V5, CH-47 Chinook).
 6.  **Tactical Exporters**:
     *   Download raw simulation metrics as a `.csv` file.
     *   Generate and download a formal **Commanding Officer's Dossier** as a PDF containing deployment specs and stealth ratings.
+7.  **🧬 Inverse AI Generative Designer (NSGA-II)**:
+    *   Uses the `pymoo` multi-objective optimization framework to evolve optimal shelter material combinations.
+    *   **3 Objectives**: Minimize weight, minimize cost, maximize minimum internal temperature.
+    *   **3 Constraints**: Max payload (kg), max budget (INR), max IR glow (°C) — all configurable via sidebar sliders.
+    *   Evaluates **5,000+ shelter permutations** (100 population × 50 generations) using the full 24-hour thermal simulation loop.
+    *   Displays **Top 3 Pareto-optimal Blueprints** with comparison tables, expandable detail cards, and per-blueprint thermal profile charts.
 
 ---
 

@@ -11,8 +11,12 @@ from physics import (
     calculate_external_surface_temp,
     calculate_metabolic_heat,       
     calculate_ventilation_loss,     
-    MATERIALS
+    MATERIALS,
+    WALL_MATERIALS,
+    ROOF_MATERIALS,
+    WINDOW_MATERIALS,
 )
+from optimize import run_optimization
 
 st.set_page_config(page_title="Thermal Shelter Simulator", layout="wide")
 st.title("🏔️ Ladakh Thermal Shelter Simulator (SIH26051)")
@@ -49,9 +53,9 @@ else:
     st.sidebar.success("✅ Ventilation in safe operational range.")
 # Material Selection
 st.sidebar.header("Materials")
-wall_material = st.sidebar.selectbox("Wall Material", list(MATERIALS.keys()), index=1)  # Default: Brick
-roof_material = st.sidebar.selectbox("Roof Material", list(MATERIALS.keys()), index=3)  # Default: PUF
-window_material = st.sidebar.selectbox("Window Material", list(MATERIALS.keys()), index=4)  # Default: Glass
+wall_material = st.sidebar.selectbox("Wall Material", WALL_MATERIALS, index=1)  # Default: Brick
+roof_material = st.sidebar.selectbox("Roof Material", ROOF_MATERIALS, index=2)  # Default: PUF
+window_material = st.sidebar.selectbox("Window Material", WINDOW_MATERIALS, index=0)  # Default: Glass (Single Pane)
 
 # Initial Conditions
 st.sidebar.header("Initial Conditions")
@@ -252,7 +256,110 @@ with stealth_col2:
     st.metric("Max External Wall Heat Glow", f"+{max_temp_diff:.2f} °C", delta_color="inverse")
 
 st.caption("Military Note: If the external wall is more than 0.5°C warmer than the ambient air, it can be detected by thermal imaging.")
-    
+
+# ============ AI AUTO-DESIGNER (NSGA-II) ============
+st.markdown("---")
+st.header("🧬 Inverse AI Generative Designer")
+st.caption("Uses NSGA-II (Non-dominated Sorting Genetic Algorithm II) to evolve optimal shelter material blueprints across 5,000+ permutations.")
+
+# Constraint sliders in the sidebar
+st.sidebar.header("🧬 AI Auto-Designer")
+ai_max_weight = st.sidebar.slider("Max Payload (kg)", 500, 10000, 2500, step=100)
+ai_max_cost = st.sidebar.slider("Max Budget (INR)", 10000, 500000, 150000, step=5000)
+ai_max_glow = st.sidebar.slider("Max IR Glow (°C)", 0.1, 3.0, 0.5, step=0.1)
+ai_pop_size = st.sidebar.select_slider("Population Size", options=[50, 100, 150, 200], value=100)
+ai_n_gen = st.sidebar.select_slider("Generations", options=[25, 50, 75, 100], value=50)
+
+run_ai = st.button("🚀 Run AI Optimizer", type="primary", use_container_width=True)
+
+if run_ai:
+    with st.spinner(f"Evolving {ai_pop_size * ai_n_gen:,} shelter permutations via NSGA-II..."):
+        blueprints = run_optimization(
+            wall_area=wall_area,
+            roof_area=roof_area,
+            window_area=window_area,
+            door_area=door_area,
+            shelter_volume=shelter_volume,
+            occupants=occupants,
+            ach=ach,
+            outdoor_temps=outdoor_temps,
+            solar_irradiance=solar_irradiance,
+            initial_temp=initial_temp,
+            max_weight=ai_max_weight,
+            max_cost=ai_max_cost,
+            max_glow=ai_max_glow,
+            pop_size=ai_pop_size,
+            n_gen=ai_n_gen,
+        )
+
+    if not blueprints:
+        st.error("❌ No feasible blueprints found. Try relaxing your constraints (increase budget or payload limit).")
+    else:
+        st.success(f"✅ Found {len(blueprints)} Pareto-optimal blueprint(s). Showing top 3:")
+        top_blueprints = blueprints[:3]
+
+        # Summary comparison table
+        summary_data = []
+        for i, bp in enumerate(top_blueprints):
+            summary_data.append({
+                "Rank": f"#{i+1}",
+                "Wall": bp["wall"],
+                "Roof": bp["roof"],
+                "Window": bp["window"],
+                "Weight (kg)": f"{bp['total_weight']:,.0f}",
+                "Cost (INR)": f"₹{bp['total_cost']:,.0f}",
+                "Min Temp (°C)": f"{bp['min_temp']:.1f}",
+                "IR Glow (°C)": f"+{bp['max_ir_glow']:.2f}",
+                "Comfort Hrs": f"{bp['comfort_hours']}/24",
+            })
+
+        st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+
+        # Detailed expanders for each blueprint
+        for i, bp in enumerate(top_blueprints):
+            medal = ["🥇", "🥈", "🥉"][i]
+            with st.expander(f"{medal} Blueprint #{i+1}: {bp['wall']} + {bp['roof']} + {bp['window']}"):
+                bp_col1, bp_col2, bp_col3, bp_col4 = st.columns(4)
+                with bp_col1:
+                    st.metric("⚖️ Weight", f"{bp['total_weight']:,.0f} kg")
+                with bp_col2:
+                    st.metric("💰 Cost", f"₹{bp['total_cost']:,.0f}")
+                with bp_col3:
+                    st.metric("🌡️ Min Temp", f"{bp['min_temp']:.1f}°C")
+                with bp_col4:
+                    st.metric("🎯 IR Glow", f"+{bp['max_ir_glow']:.2f}°C")
+
+                # Temperature profile chart for this blueprint
+                fig_bp = go.Figure()
+                fig_bp.add_trace(go.Scatter(
+                    x=list(range(24)), y=outdoor_temps.tolist(),
+                    mode='lines', name='Outside',
+                    line=dict(color='#3498db', dash='dot')
+                ))
+                fig_bp.add_trace(go.Scatter(
+                    x=list(range(24)), y=bp["shelter_temps"],
+                    mode='lines+markers', name=f'Blueprint #{i+1}',
+                    line=dict(color='#e74c3c', width=3)
+                ))
+                fig_bp.add_hline(y=-10, line_dash="dash", line_color="#2ecc71",
+                                 annotation_text="Comfort Threshold")
+                fig_bp.update_layout(
+                    title=f"24h Thermal Profile — Blueprint #{i+1}",
+                    xaxis_title="Hour", yaxis_title="Temperature (°C)",
+                    hovermode="x unified", height=350
+                )
+                st.plotly_chart(fig_bp, use_container_width=True)
+
+                # Airlift feasibility for this blueprint
+                if bp["total_weight"] <= 1500:
+                    st.info("🚁 **Airlift:** HAL Dhruv (ALH) — Light Transport")
+                elif bp["total_weight"] <= 4000:
+                    st.warning("🚁 **Airlift:** Mi-17 V5 — Medium Transport")
+                elif bp["total_weight"] <= 10000:
+                    st.error("🚁 **Airlift:** CH-47 Chinook — Heavy Lift")
+                else:
+                    st.error("❌ **Airlift:** IMPOSSIBLE — Road Convoy Required")
+
 # ============ CONFIGURATION SUMMARY ============
 st.markdown("---")
 st.header("📋 Configuration Summary")
