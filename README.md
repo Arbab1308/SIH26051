@@ -2,7 +2,7 @@
 
 An interactive, high-performance thermal simulation tool designed for the defense research of tactical shelters in high-altitude, extreme cold weather conditions (e.g., Ladakh at ~4500m). 
 
-This project simulates 24-hour thermodynamic performance, solar radiation gain, metabolic heat from occupants, and ventilation heat loss. It also features a military logistics engine for airlift feasibility and an infrared (IR) signature stealth analyzer.
+This project simulates 24-hour thermodynamic performance, solar radiation gain, metabolic heat from occupants, and ventilation heat loss. It features a military logistics engine for airlift feasibility, an infrared (IR) signature stealth analyzer, an **AI-powered NSGA-II generative designer**, and **real-time topographical shadow mapping** using live terrain data.
 
 ---
 
@@ -66,12 +66,13 @@ After running, the application will be hosted locally. Open your browser and nav
 
 ## 🛠️ Project Architecture & Files
 
-*   `app.py`: The main Streamlit application containing the UI, plotting logic, logistics calculators, AI optimizer integration, and report exporters.
+*   `app.py`: The main Streamlit application containing the UI, plotting logic, logistics calculators, AI optimizer integration, terrain shadow visualization, and report exporters.
 *   `physics.py`: The core thermodynamic library implementing heat transfer (conduction, solar radiation, metabolic heat, ventilation loss), thermal signature equations, and the expanded 20-material database with integer-indexed lookup tables.
 *   `optimize.py`: The **Inverse AI Generative Designer** — a multi-objective NSGA-II optimizer (via `pymoo`) that evolves optimal shelter material blueprints across 3 objectives and 3 constraints.
+*   `solar_terrain.py`: The **Real-Time Topographical Shadow Mapping** module — uses `pysolar` for astronomical sun positioning and the Open-Elevation API for terrain data, then applies ray-casting to compute shadow masks.
 *   `generate_data.py`: A helper script simulating weather conditions (ambient temp, solar irradiance, humidity) for a winter day in Ladakh.
 *   `ladakh_winter.csv`: The default generated weather dataset.
-*   `requirements.txt`: Python package dependencies (including `pymoo` for the AI optimizer).
+*   `requirements.txt`: Python package dependencies (including `pymoo`, `pysolar`).
 *   `.gitignore`: Prevents temporary cache, virtual environments (`venv`), and sensitive environment files from being tracked by Git.
 
 ---
@@ -94,13 +95,21 @@ After running, the application will be hosted locally. Open your browser and nav
     *   **3 Constraints**: Max payload (kg), max budget (INR), max IR glow (°C) — all configurable via sidebar sliders.
     *   Evaluates **5,000+ shelter permutations** (100 population × 50 generations) using the full 24-hour thermal simulation loop.
     *   Displays **Top 3 Pareto-optimal Blueprints** with comparison tables, expandable detail cards, and per-blueprint thermal profile charts.
+8.  **🗺️ Real-Time Topographical Shadow Mapping**:
+    *   Uses `pysolar` to calculate the sun's exact altitude and azimuth for every hour based on GPS coordinates and deployment date.
+    *   Fetches live terrain elevation data via the **Open-Elevation API** in a radial pattern (36 azimuths × 6 distances = 216 sample points) around the deployment site.
+    *   Computes **horizon angles** using trigonometry and applies a **ray-casting algorithm**: if `Sun_Altitude < Mountain_Horizon_Angle`, the shelter is in topographical shadow.
+    *   Shadowed hours receive only **10% diffuse sky radiation** (eliminating direct sunlight), dramatically reducing solar heat gain.
+    *   Visualizations include: Sun Path vs Mountain Horizon chart, Shadow Timeline bar, and Original vs Modified irradiance overlay.
+    *   Default coordinates: **Leh, Ladakh (34.1526°N, 77.5771°E)**.
 
 ---
 
 ## 🔒 Security & Secrecy Audit
 
-*   **API Keys & Secrets**: The codebase has been scanned and contains no API keys, credentials, or private credentials. It runs entirely locally on local calculation engines.
-*   **Git Security**: A `.gitignore` file has been added to prevent local environment variables (`.env`), python cache (`__pycache__`), virtual environments (`venv/`), and PDF report downloads from being committed or pushed to Github.
+*   **API Keys & Secrets**: The codebase contains no API keys, tokens, or private credentials. The only external API used (**Open-Elevation**) is completely free, open-source, and requires no authentication.
+*   **Git Security**: A `.gitignore` file prevents local environment variables (`.env`), python cache (`__pycache__`), virtual environments (`venv/`), and PDF report downloads from being committed or pushed to Github.
+*   **Internet Requirement**: The Terrain Shadow Mapping feature requires an internet connection to fetch live elevation data. All other features work fully offline.
 
 ---
 

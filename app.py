@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 from fpdf import FPDF
 import base64
+from datetime import date as date_type
 from physics import (
     calculate_heat_transfer, 
     calculate_solar_gain, 
@@ -17,6 +18,7 @@ from physics import (
     WINDOW_MATERIALS,
 )
 from optimize import run_optimization
+from solar_terrain import run_terrain_shadow_pipeline
 
 st.set_page_config(page_title="Thermal Shelter Simulator", layout="wide")
 st.title("🏔️ Ladakh Thermal Shelter Simulator (SIH26051)")
@@ -79,7 +81,35 @@ else:
 # Extract weather columns
 hours = weather_data["Hour"].values
 outdoor_temps = weather_data["Temperature_C"].values
-solar_irradiance = weather_data["Solar_Irradiance_W_m2"].values
+solar_irradiance_raw = weather_data["Solar_Irradiance_W_m2"].values
+
+# ============ TERRAIN SHADOW MAPPING (Sidebar + Processing) ============
+st.sidebar.header("🗺️ Terrain Shadow Mapping")
+enable_terrain = st.sidebar.checkbox("Enable Terrain-Aware Solar", value=False)
+
+deploy_lat = st.sidebar.number_input("Latitude (°N)", -90.0, 90.0, 34.1526, format="%.4f")
+deploy_lon = st.sidebar.number_input("Longitude (°E)", -180.0, 180.0, 77.5771, format="%.4f")
+deploy_date = st.sidebar.date_input("Deployment Date", value=date_type.today())
+terrain_radius = st.sidebar.slider("Scan Radius (km)", 1.0, 10.0, 5.0, step=0.5)
+
+# Process terrain shadow if enabled
+terrain_result = None
+solar_irradiance = solar_irradiance_raw.copy()
+
+if enable_terrain:
+    with st.spinner("🛰️ Fetching terrain data & computing shadow mask..."):
+        terrain_result = run_terrain_shadow_pipeline(
+            lat=deploy_lat,
+            lon=deploy_lon,
+            date=deploy_date,
+            base_irradiance=solar_irradiance_raw,
+            radius_km=terrain_radius,
+        )
+    if terrain_result["status"] == "ok":
+        solar_irradiance = terrain_result["modified_irradiance"]
+        st.sidebar.success(f"✅ Shadow mapped: {terrain_result['shadowed_hours']} daylight hrs blocked")
+    else:
+        st.sidebar.error(f"⚠️ {terrain_result.get('error_msg', 'API error')} — using raw solar data")
 
 # ============ SIMULATION ============
 st.header("🔬 Simulation Results")
@@ -167,10 +197,26 @@ with plot_col1:
     fig1.update_layout(title="Temperature Profile: 24-Hour Cycle", xaxis_title="Hour of Day", yaxis_title="Temperature (°C)", hovermode="x unified")
     st.plotly_chart(fig1, use_container_width=True)
 
-    # Plot 3: Solar Irradiance
+    # Plot 3: Solar Irradiance (with terrain shadow overlay if enabled)
     fig3 = go.Figure()
-    fig3.add_trace(go.Scatter(x=hours, y=solar_irradiance, mode='lines+markers', name='Solar Irradiance', fill='tozeroy', line=dict(color='#f39c12'), fillcolor='rgba(243, 156, 18, 0.2)'))
-    fig3.update_layout(title="Solar Radiation Profile", xaxis_title="Hour of Day", yaxis_title="Solar Irradiance (W/m²)", hovermode="x unified")
+    if enable_terrain and terrain_result and terrain_result["status"] == "ok":
+        # Show original as faded background
+        fig3.add_trace(go.Scatter(x=hours, y=solar_irradiance_raw, mode='lines',
+                                   name='Original (No Shadow)', line=dict(color='#f39c12', dash='dot', width=1),
+                                   fillcolor='rgba(243, 156, 18, 0.05)', fill='tozeroy'))
+        # Show terrain-modified as solid
+        fig3.add_trace(go.Scatter(x=hours, y=solar_irradiance, mode='lines+markers',
+                                   name='Terrain-Modified', line=dict(color='#e74c3c', width=3),
+                                   fillcolor='rgba(231, 76, 60, 0.2)', fill='tozeroy'))
+        fig3.update_layout(title="🗺️ Solar Radiation (Terrain Shadow Applied)",
+                           xaxis_title="Hour of Day", yaxis_title="Solar Irradiance (W/m²)",
+                           hovermode="x unified")
+    else:
+        fig3.add_trace(go.Scatter(x=hours, y=solar_irradiance, mode='lines+markers',
+                                   name='Solar Irradiance', fill='tozeroy',
+                                   line=dict(color='#f39c12'), fillcolor='rgba(243, 156, 18, 0.2)'))
+        fig3.update_layout(title="Solar Radiation Profile", xaxis_title="Hour of Day",
+                           yaxis_title="Solar Irradiance (W/m²)", hovermode="x unified")
     st.plotly_chart(fig3, use_container_width=True)
 
 with plot_col2:
@@ -189,6 +235,90 @@ with plot_col2:
     fig4.add_trace(go.Bar(x=hours, y=[1]*24, marker_color=colors, hoverinfo="text", hovertext=hover_texts, showlegend=False))
     fig4.update_layout(title="Comfort Hours (Green = Comfortable, Red = Cold)", xaxis_title="Hour of Day", yaxis_title="Comfort Status", yaxis=dict(tickvals=[0, 1], ticktext=["Cold", "Comfortable"]))
     st.plotly_chart(fig4, use_container_width=True)
+
+# ============ TERRAIN SHADOW ANALYSIS SECTION ============
+if enable_terrain and terrain_result and terrain_result["status"] == "ok":
+    st.markdown("---")
+    st.header("🗺️ Topographical Shadow Analysis")
+    st.caption(f"GPS: {deploy_lat}°N, {deploy_lon}°E | Date: {deploy_date} | Scan Radius: {terrain_radius} km")
+
+    shadow_col1, shadow_col2, shadow_col3 = st.columns(3)
+    with shadow_col1:
+        st.metric("🏔️ Site Elevation", f"{terrain_result['terrain_data']['site_elevation']:,.0f} m")
+    with shadow_col2:
+        st.metric("🌑 Shadow Hours (Daylight)", f"{terrain_result['shadowed_hours']}")
+    with shadow_col3:
+        solar_loss_pct = 0
+        raw_total = solar_irradiance_raw.sum()
+        if raw_total > 0:
+            solar_loss_pct = ((raw_total - solar_irradiance.sum()) / raw_total) * 100
+        st.metric("☀️ Solar Energy Lost", f"{solar_loss_pct:.1f}%")
+
+    # Sun Path vs Horizon Angle chart
+    shadow_data = terrain_result["shadow_mask"]
+    sun_pos = terrain_result["sun_positions"]
+
+    fig_shadow = go.Figure()
+
+    # Sun altitude curve
+    fig_shadow.add_trace(go.Scatter(
+        x=hours, y=sun_pos["altitudes"],
+        mode='lines+markers', name='Sun Altitude',
+        line=dict(color='#f39c12', width=3),
+        marker=dict(size=6),
+    ))
+
+    # Horizon angle at sun's azimuth
+    fig_shadow.add_trace(go.Scatter(
+        x=hours, y=shadow_data["horizon_at_sun"],
+        mode='lines', name='Terrain Horizon',
+        line=dict(color='#e74c3c', width=2, dash='dash'),
+        fill='tozeroy', fillcolor='rgba(231, 76, 60, 0.1)',
+    ))
+
+    # Shade the blocked hours
+    for h in range(24):
+        if shadow_data["is_shadowed"][h] and sun_pos["altitudes"][h] > 0:
+            fig_shadow.add_vrect(
+                x0=h - 0.5, x1=h + 0.5,
+                fillcolor="rgba(0, 0, 0, 0.15)", layer="below",
+                line_width=0,
+            )
+
+    fig_shadow.add_hline(y=0, line_dash="solid", line_color="gray",
+                          annotation_text="Geometric Horizon (0°)")
+    fig_shadow.update_layout(
+        title="Sun Path vs Mountain Horizon (Shaded = Blocked by Terrain)",
+        xaxis_title="Hour of Day", yaxis_title="Angle (degrees)",
+        hovermode="x unified", height=400,
+    )
+    st.plotly_chart(fig_shadow, use_container_width=True)
+
+    # Shadow hour indicator bar
+    fig_shadow_bar = go.Figure()
+    shadow_colors = []
+    shadow_hover = []
+    for h in range(24):
+        alt = sun_pos["altitudes"][h]
+        if alt <= 0:
+            shadow_colors.append('#1a1a2e')  # Night
+            shadow_hover.append(f"Hour {h}: Night (Sun below horizon)")
+        elif shadow_data["is_shadowed"][h]:
+            shadow_colors.append('#c0392b')  # Shadow
+            shadow_hover.append(f"Hour {h}: ⛰️ SHADOWED (Sun {alt:.1f}° < Horizon {shadow_data['horizon_at_sun'][h]:.1f}°)")
+        else:
+            shadow_colors.append('#f1c40f')  # Sunlit
+            shadow_hover.append(f"Hour {h}: ☀️ Sunlit (Sun {alt:.1f}°)")
+
+    fig_shadow_bar.add_trace(go.Bar(
+        x=hours, y=[1]*24, marker_color=shadow_colors,
+        hoverinfo='text', hovertext=shadow_hover, showlegend=False,
+    ))
+    fig_shadow_bar.update_layout(
+        title="Shadow Timeline (Yellow=Sun, Red=Mountain Shadow, Dark=Night)",
+        xaxis_title="Hour of Day", yaxis_visible=False, height=200,
+    )
+    st.plotly_chart(fig_shadow_bar, use_container_width=True)
 
 # ============ MILITARY LOGISTICS & AIRLIFT ENGINE ============
 st.markdown("---")
