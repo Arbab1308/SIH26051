@@ -24,6 +24,7 @@ from microgrid import run_microgrid_analysis
 from multi_day import run_multi_day_simulation
 from scenarios import get_scenario_names, get_scenario
 from supply_chain import get_location, get_delivered_cost, get_lead_time
+from reporting import generate_multi_day_pdf
 
 st.set_page_config(page_title="Thermal Shelter Simulator", layout="wide")
 st.title("🏔️ Ladakh Thermal Shelter Simulator (SIH26051)")
@@ -272,6 +273,31 @@ if sim_mode == "Multi-Day (7-30 days)":
                     st.error(f"❌ UNAVAILABLE at {supply_location}")
                 else:
                     st.success(f"✅ Lead Time: {lead} days | Cost: ₹{cost:.0f}/kg")
+                    
+        st.markdown("---")
+        st.subheader("📄 Export Multi-Day Tactical Dossier")
+        st.caption("Generates a comprehensive PDF report including failure mode predictions, casualty risks, and logistics constraints.")
+        
+        # Calculate totals for PDF
+        total_weight = (wall_area * MATERIALS[wall_material]["density"] * 0.20 + 
+                       roof_area * MATERIALS[roof_material]["density"] * 0.15 + 
+                       window_area * MATERIALS[window_material]["density"] * 0.01)
+                       
+        total_cost = (wall_area * MATERIALS[wall_material]["density"] * 0.20 * get_delivered_cost(wall_material, supply_location) + 
+                     roof_area * MATERIALS[roof_material]["density"] * 0.15 * get_delivered_cost(roof_material, supply_location) + 
+                     window_area * MATERIALS[window_material]["density"] * 0.01 * get_delivered_cost(window_material, supply_location))
+                     
+        airlift_status = "Light Transport (ALH)" if total_weight <= 1500 else ("Medium Transport" if total_weight <= 4000 else "Heavy Lift")
+        
+        multi_pdf_bytes = generate_multi_day_pdf(multi_res, config, scenario_name, supply_location, total_weight, total_cost, airlift_status)
+        
+        st.download_button(
+            label="📥 Download Multi-Day Tactical Dossier (PDF)",
+            data=multi_pdf_bytes,
+            file_name=f"DRDO_MultiDay_Dossier_{scenario_name.replace(' ', '_')}.pdf",
+            mime="application/pdf",
+            type="primary"
+        )
         
     else:
         st.error("Simulation failed.")
