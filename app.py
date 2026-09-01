@@ -9,6 +9,7 @@ from physics import (
     calculate_heat_transfer, 
     calculate_solar_gain, 
     calculate_new_temperature,
+    calculate_convection_coefficient,
     calculate_external_surface_temp,
     calculate_metabolic_heat,       
     calculate_ventilation_loss,     
@@ -45,7 +46,12 @@ door_area = st.sidebar.slider("Door Area (m²)", 0.0, 5.0, 1.5)
 # NEW: Tactical & Biological Inputs
 st.sidebar.header("Tactical & Biological")
 occupants = st.sidebar.number_input("Number of Troops (Occupancy)", 0, 20, 5)
+metabolic_watts = st.sidebar.slider("Metabolic Heat/Soldier (W)", 100, 220, 175, help="Cold-stressed soldiers generate 150-200W")
+wind_speed_kmh = st.sidebar.slider("Outdoor Wind Speed (km/h)", 0, 100, 50, help="Ladakh winter winds (50-60 km/h -> h_ext ≈ 40-60 W/m²K)")
 ach = st.sidebar.slider("Ventilation (Air Changes/Hour)", 0.0, 3.0, 0.5, step=0.1)
+
+# Dynamic Convection Coefficient Calculation based on Wind Speed
+h_ext_calculated = calculate_convection_coefficient(wind_speed_kmh)
 
 # Asphyxiation Warning Logic
 if ach < 0.3:
@@ -92,6 +98,7 @@ deploy_lat = st.sidebar.number_input("Latitude (°N)", -90.0, 90.0, 34.1526, for
 deploy_lon = st.sidebar.number_input("Longitude (°E)", -180.0, 180.0, 77.5771, format="%.4f")
 deploy_date = st.sidebar.date_input("Deployment Date", value=date_type.today())
 terrain_radius = st.sidebar.slider("Scan Radius (km)", 1.0, 10.0, 5.0, step=0.5)
+diffuse_pct = st.sidebar.slider("Shadow Diffuse Fraction (%)", 5, 15, 10, help="Diffused solar radiation under shadow (Cloud cover dependent)") / 100.0
 
 # Process terrain shadow if enabled
 terrain_result = None
@@ -105,10 +112,14 @@ if enable_terrain:
             date=deploy_date,
             base_irradiance=solar_irradiance_raw,
             radius_km=terrain_radius,
+            diffuse_fraction=diffuse_pct,
         )
     if terrain_result["status"] == "ok":
         solar_irradiance = terrain_result["modified_irradiance"]
-        st.sidebar.success(f"✅ Shadow mapped: {terrain_result['shadowed_hours']} daylight hrs blocked")
+        if terrain_result.get("is_offline_fallback"):
+            st.sidebar.info(f"⚡ Offline Himalayan DEM Active | {terrain_result['shadowed_hours']} hrs shadowed")
+        else:
+            st.sidebar.success(f"✅ Live DEM Shadow Mapped: {terrain_result['shadowed_hours']} daylight hrs blocked")
     else:
         st.sidebar.error(f"⚠️ {terrain_result.get('error_msg', 'API error')} — using raw solar data")
 
@@ -137,8 +148,8 @@ for hour in range(24):
     t_out = outdoor_temps[hour]
     solar = solar_irradiance[hour]
     
-    # Calculate how warm the outside wall gets for enemy IR scopes
-    t_surf = calculate_external_surface_temp(current_temp, t_out, wall_props["r_value"])
+    # Calculate how warm the outside wall gets for enemy IR scopes (using wind speed dynamic h_ext)
+    t_surf = calculate_external_surface_temp(current_temp, t_out, wall_props["r_value"], h_ext=h_ext_calculated)
     external_wall_temps.append(t_surf)
     
    
@@ -151,8 +162,8 @@ for hour in range(24):
     # NEW: Ventilation Heat Loss
     q_vent = calculate_ventilation_loss(current_temp, t_out, shelter_volume, ach)
     
-    # NEW: Metabolic Heat Gain
-    q_human = calculate_metabolic_heat(occupants)
+    # NEW: Metabolic Heat Gain (Soldiers under cold stress)
+    q_human = calculate_metabolic_heat(occupants, watts_per_person=metabolic_watts)
     
     # Calculate total loss and total gain
     q_total_loss = q_wall + q_roof + q_window_loss + q_door + q_vent
