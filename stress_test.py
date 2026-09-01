@@ -18,6 +18,10 @@
     - Runs full 30-day simulation with Steel + Concrete materials
     - Verifies the Material Failure service flags degradation
     - Confirms casualty risk assessment produces valid output
+
+  TEST 4: Swarm Intelligence
+    - Tests virtual power plant (VPP) isolation algorithms
+    - Tests predictive energy routing with 10 shelters
 =============================================================================
 """
 
@@ -389,6 +393,50 @@ def test_30_day_blizzard():
 
 
 # ═══════════════════════════════════════════════════════════════════
+# TEST 4: SWARM INTELLIGENCE
+# ═══════════════════════════════════════════════════════════════════
+def test_swarm_intelligence():
+    banner("TEST 4: SWARM INTELLIGENCE — Predictive Routing & VPP")
+    from swarm_microgrid import ShelterNode, route_swarm_energy, manage_swarm_batteries
+
+    checks = {}
+    print("\n  [4a] Verifying Virtual Power Plant Battery Isolation...")
+    try:
+        shelters = [
+            ShelterNode(1, initial_temp=-10.0, initial_soc=15, health_cycles=6000), 
+            ShelterNode(2, initial_temp=5.0, initial_soc=90, health_cycles=1000),   
+            ShelterNode(3, initial_temp=-5.0, initial_soc=50, health_cycles=8500),  # Failing
+        ]
+        
+        vpp_status = manage_swarm_batteries(shelters, hour_of_day=2)
+        assert shelters[2].is_isolated == True, "EOL battery must be isolated!"
+        assert vpp_status["batteries_healthy"] == 2, "Only 2 healthy batteries should remain"
+        checks["vpp_battery_isolation"] = PASS
+        print(f"      {PASS} VPP correctly identified and isolated failing node.")
+    except Exception as e:
+        checks["vpp_battery_isolation"] = FAIL
+        print(f"      {FAIL} {e}")
+
+    print("\n  [4b] Verifying Predictive Energy Routing (Starvation Mode)...")
+    try:
+        t_out_next = [-25.0, -26.0]
+        # Low irradiance (100W/m2), won't be enough to heat both
+        routing = route_swarm_energy(shelters, 100.0, t_out_next, "02:00 IST")
+        
+        assert routing["strategy"] == "Rationed Priority Routing"
+        assert routing["allocation"]["Shelter_1"] > routing["allocation"]["Shelter_2"], "Coldest shelter must get most power"
+        assert routing["allocation"]["Shelter_3"] == 0, "Isolated shelter must get 0 power"
+        checks["predictive_routing"] = PASS
+        print(f"      {PASS} Energy routed to coldest shelter, isolated shelter ignored.")
+    except Exception as e:
+        checks["predictive_routing"] = FAIL
+        print(f"      {FAIL} {e}")
+
+    TEST_RESULTS["Test 4: Swarm Intelligence"] = checks
+    return all(v == PASS for v in checks.values())
+
+
+# ═══════════════════════════════════════════════════════════════════
 # MAIN EXECUTION
 # ═══════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
@@ -400,6 +448,7 @@ if __name__ == "__main__":
     test_1_ok = test_offline_blackout()
     test_2_ok = test_chinook_paradox()
     test_3_ok = test_30_day_blizzard()
+    test_4_ok = test_swarm_intelligence()
 
     # ═══════════════════════════════════════════════════════════════
     # FINAL REPORT
