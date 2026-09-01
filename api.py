@@ -1,7 +1,11 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+ from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 import datetime
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Import existing microservices
 from wind_load import run_wind_analysis, get_max_safe_wind
@@ -17,19 +21,44 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# Initialize Rate Limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Add CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8501", "https://drdo.gov.in"], # Strict origins
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+# Secure Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    return response
+
 # ==========================================
 # 1. WIND LOAD & STRUCTURAL ANALYSIS API
 # ==========================================
 class WindLoadRequest(BaseModel):
-    wall_material: str = Field(default="Brick", example="Concrete")
-    roof_material: str = Field(default="Polyurethane Panel (PUF)", example="Carbon Fiber Panel")
-    wall_area: float = Field(default=40.0)
-    roof_area: float = Field(default=24.0)
-    altitude_m: float = Field(default=4500.0)
-    hourly_wind_speeds_kmh: List[float] = Field(..., example=[10, 45, 120, 60, 20])
+    wall_material: str = Field(default="Brick", example="Concrete", max_length=100)
+    roof_material: str = Field(default="Polyurethane Panel (PUF)", example="Carbon Fiber Panel", max_length=100)
+    wall_area: float = Field(default=40.0, gt=0, le=500.0)
+    roof_area: float = Field(default=24.0, gt=0, le=500.0)
+    altitude_m: float = Field(default=4500.0, ge=0, le=8848.0)
+    hourly_wind_speeds_kmh: List[float] = Field(..., example=[10, 45, 120, 60, 20], max_length=24)
 
 @app.post("/wind-load/analyze", tags=["Structural Engineering"])
-async def analyze_wind_load(req: WindLoadRequest):
+@limiter.limit("10/minute")
+async def analyze_wind_load(request: Request, req: WindLoadRequest):
     """
     Analyzes the structural safety of a shelter envelope against a series of wind gusts.
     Accounts for altitude-adjusted air density and computes simply-supported beam stress.
@@ -46,22 +75,23 @@ async def analyze_wind_load(req: WindLoadRequest):
 # 2. INVERSE AI GENERATIVE DESIGNER API
 # ==========================================
 class OptimizerRequest(BaseModel):
-    wall_area: float = Field(default=52.0)
-    roof_area: float = Field(default=24.0)
-    window_area: float = Field(default=4.0)
-    door_area: float = Field(default=2.0)
-    volume: float = Field(default=60.0)
-    occupants: int = Field(default=5)
-    ach: float = Field(default=0.3)
-    initial_temp: float = Field(default=-10.0)
-    max_weight_kg: float = Field(default=2500.0, description="Maximum airlift payload limit")
-    max_cost_inr: float = Field(default=150000.0, description="Maximum budget")
-    location_name: str = Field(default="DBO (Daulat Beg Oldi)", description="Target deployment zone for supply constraints")
-    pop_size: int = Field(default=20)
-    n_gen: int = Field(default=10)
+    wall_area: float = Field(default=52.0, gt=0, le=500)
+    roof_area: float = Field(default=24.0, gt=0, le=500)
+    window_area: float = Field(default=4.0, ge=0, le=100)
+    door_area: float = Field(default=2.0, ge=0, le=50)
+    volume: float = Field(default=60.0, gt=0, le=1000)
+    occupants: int = Field(default=5, gt=0, le=100)
+    ach: float = Field(default=0.3, ge=0.1, le=5.0)
+    initial_temp: float = Field(default=-10.0, ge=-60.0, le=50.0)
+    max_weight_kg: float = Field(default=2500.0, gt=0, le=20000.0)
+    max_cost_inr: float = Field(default=150000.0, gt=0, le=10000000.0)
+    location_name: str = Field(default="DBO (Daulat Beg Oldi)", max_length=100)
+    pop_size: int = Field(default=20, ge=10, le=200)
+    n_gen: int = Field(default=10, ge=5, le=100)
 
 @app.post("/optimize/generate-blueprints", tags=["Generative AI"])
-async def generate_blueprints(req: OptimizerRequest):
+@limiter.limit("5/minute")
+async def generate_blueprints(request: Request, req: OptimizerRequest):
     """
     Runs the NSGA-II Genetic Algorithm to evolve the optimal shelter blueprints.
     Automatically filters out materials that are unavailable at the target deployment zone.
@@ -88,11 +118,12 @@ async def generate_blueprints(req: OptimizerRequest):
 # 3. CASUALTY RISK & MEDICAL API
 # ==========================================
 class CasualtyRequest(BaseModel):
-    ambient_temp_c: float = Field(..., example=-30.0)
-    wind_speed_kmh: float = Field(..., example=60.0)
+    ambient_temp_c: float = Field(..., example=-30.0, ge=-80.0, le=50.0)
+    wind_speed_kmh: float = Field(..., example=60.0, ge=0.0, le=200.0)
 
 @app.post("/casualty/frostbite-risk", tags=["Medical Intelligence"])
-async def predict_frostbite(req: CasualtyRequest):
+@limiter.limit("20/minute")
+async def predict_frostbite(request: Request, req: CasualtyRequest):
     """
     Predicts the exact time to frostbite for exposed skin using NATO STANAG 2895 Wind Chill metrics.
     """

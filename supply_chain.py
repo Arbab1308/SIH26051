@@ -1,6 +1,7 @@
 """
 Service for managing supply chain constraints based on Indian Army deployment locations.
 """
+from functools import lru_cache
 
 DEPLOYMENT_LOCATIONS = {
     "Leh Cantonment": {
@@ -61,11 +62,11 @@ MATERIAL_SUPPLY = {
     "Glass (Double Pane)": {"base_cost": 120, "tier_availability": ["A", "B", "C"]},
     "Polycarbonate Sheet": {"base_cost": 250, "tier_availability": ["A", "B", "C", "D"]},
 }
-
+@lru_cache(maxsize=None)
 def get_location(name):
     """Returns deployment location info or default to Leh if not found."""
     return DEPLOYMENT_LOCATIONS.get(name, DEPLOYMENT_LOCATIONS["Leh Cantonment"])
-
+@lru_cache(maxsize=None)
 def get_available_materials(location_name):
     """Returns a list of material names available at the given location tier."""
     loc = get_location(location_name)
@@ -75,7 +76,7 @@ def get_available_materials(location_name):
         if tier in props["tier_availability"]:
             available.append(mat)
     return available
-
+@lru_cache(maxsize=None)
 def get_delivered_cost(material, location_name):
     """
     Calculates the delivered cost of a material based on location tier logistics markup.
