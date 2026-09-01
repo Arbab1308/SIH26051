@@ -2,7 +2,7 @@
 
 An interactive, high-performance thermal simulation tool designed for the defense research of tactical shelters in high-altitude, extreme cold weather conditions (e.g., Ladakh at ~4500m). 
 
-This project simulates 24-hour thermodynamic performance, solar radiation gain, metabolic heat from occupants, and ventilation heat loss. It features a military logistics engine for airlift feasibility, an infrared (IR) signature stealth analyzer, an **AI-powered NSGA-II generative designer**, and **real-time topographical shadow mapping** using live terrain data.
+This project simulates 24-hour thermodynamic performance, solar radiation gain, metabolic heat from occupants, and ventilation heat loss. It features a military logistics engine for airlift feasibility, an infrared (IR) signature stealth analyzer, an **AI-powered NSGA-II generative designer**, **real-time topographical shadow mapping** using live terrain data, and a **tactical microgrid & off-grid solar sizer** for autonomous power deployment.
 
 ---
 
@@ -66,10 +66,11 @@ After running, the application will be hosted locally. Open your browser and nav
 
 ## 🛠️ Project Architecture & Files
 
-*   `app.py`: The main Streamlit application containing the UI, plotting logic, logistics calculators, AI optimizer integration, terrain shadow visualization, and report exporters.
+*   `app.py`: The main Streamlit application containing the UI, plotting logic, logistics calculators, AI optimizer integration, terrain shadow visualization, microgrid dashboard, and report exporters.
 *   `physics.py`: The core thermodynamic library implementing heat transfer (conduction, solar radiation, metabolic heat, ventilation loss), thermal signature equations, and the expanded 20-material database with integer-indexed lookup tables.
 *   `optimize.py`: The **Inverse AI Generative Designer** — a multi-objective NSGA-II optimizer (via `pymoo`) that evolves optimal shelter material blueprints across 3 objectives and 3 constraints.
 *   `solar_terrain.py`: The **Real-Time Topographical Shadow Mapping** module — uses `pysolar` for astronomical sun positioning and the Open-Elevation API for terrain data, then applies ray-casting to compute shadow masks.
+*   `microgrid.py`: The **Tactical Microgrid & Off-Grid Solar Sizer** — calculates hourly heating deficits, sizes PV arrays with altitude/temperature derating, sizes LFP battery banks with cold-weather derating, simulates 24h battery SoC, and compares against diesel fallback costs.
 *   `generate_data.py`: A helper script simulating weather conditions (ambient temp, solar irradiance, humidity) for a winter day in Ladakh.
 *   `ladakh_winter.csv`: The default generated weather dataset.
 *   `requirements.txt`: Python package dependencies (including `pymoo`, `pysolar`).
@@ -124,7 +125,32 @@ After running, the application will be hosted locally. Open your browser and nav
         *   Applies a shadow mask multiplier (0.1) to the solar irradiance array for shadowed hours, accounting only for diffuse sky radiation and eliminating direct sunlight.
         *   Passes the modified solar irradiance profile into the existing thermodynamic engine to instantly reflect the massive heat loss caused by mountain shadows.
 
-
+9.  **⚡ Tactical Microgrid & Off-Grid Solar Sizer**:
+    Even with perfect insulation, shelters at -25°C need active heating. This feature eliminates diesel dependency by sizing a fully autonomous solar+battery microgrid.
+    *   **Phase 3.1: Heating Deficit Calculation**
+        *   For each hour, calculates the exact electrical heating power (Watts) required to maintain the shelter at a configurable target temperature (e.g., +5°C).
+        *   Formula: $Q_{aux} = \max(0, Q_{loss} - Q_{natural\_gain})$ — the heater covers whatever the insulation, sun, and body heat cannot.
+        *   Identifies **peak demand** (coldest hour) for inverter sizing.
+    *   **Phase 3.2: Solar PV Array Sizing**
+        *   Sizes the panel area (m²) with production-grade derating factors:
+            *   **Altitude boost**: +8% irradiance at 3500m+ due to thinner atmosphere.
+            *   **Temperature coefficient**: -0.4%/°C from STC (25°C) — cold panels actually perform *better*.
+            *   **Soiling factor**: 5% loss from dust/snow.
+            *   **System efficiency**: Inverter (93%) × BOS wiring losses (97%) = 90.2% net.
+            *   **Battery round-trip**: 92% charge/discharge efficiency.
+    *   **Phase 3.3: Battery Bank Sizing (48V LFP)**
+        *   Sizes a Lithium Iron Phosphate (LFP) battery bank with:
+            *   **Cold-weather derating curve**: 60% capacity at -30°C, 70% at -20°C, scaling to 100% at 25°C.
+            *   **Depth-of-Discharge (DoD)**: 80% usable capacity to protect cycle life.
+            *   **Multi-day autonomy**: Configurable backup days (default 1.5 days without sun).
+    *   **Phase 3.4: 24-Hour Battery SoC Simulation**
+        *   Simulates battery State-of-Charge from midnight to midnight.
+        *   Models solar charging during daytime and heater discharge overnight.
+        *   Flags CRITICAL (<20%), LOW (<50%), or HEALTHY minimum SoC levels.
+    *   **Phase 3.5: Diesel Fallback Comparison**
+        *   Calculates the diesel generator equivalent: litres/day, daily cost, and 30-day savings.
+        *   Demonstrates the economic and logistical case for solar autonomy.
+    *   **Visualizations**: Heater Demand vs Solar Generation chart, Battery SoC simulation curve, Thermal Energy Balance breakdown, System Cost donut chart (PV/Battery/Inverter).
 ---
 
 ## 🔒 Security & Secrecy Audit

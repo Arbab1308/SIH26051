@@ -19,6 +19,7 @@ from physics import (
 )
 from optimize import run_optimization
 from solar_terrain import run_terrain_shadow_pipeline
+from microgrid import run_microgrid_analysis
 
 st.set_page_config(page_title="Thermal Shelter Simulator", layout="wide")
 st.title("🏔️ Ladakh Thermal Shelter Simulator (SIH26051)")
@@ -384,6 +385,169 @@ with stealth_col2:
     st.metric("Max External Wall Heat Glow", f"+{max_temp_diff:.2f} °C", delta_color="inverse")
 
 st.caption("Military Note: If the external wall is more than 0.5°C warmer than the ambient air, it can be detected by thermal imaging.")
+
+# ============ OFF-GRID MICROGRID & AUXILIARY HEATING ============
+st.markdown("---")
+st.header("⚡ Tactical Microgrid & Off-Grid Solar Sizer")
+st.caption("Sizes the autonomous solar PV array and 48V LFP battery bank required to maintain a strict survival temperature — eliminating diesel dependency.")
+
+# Sidebar: Microgrid Controls
+st.sidebar.header("⚡ Microgrid & Power")
+target_temp = st.sidebar.slider("Target Survival Temp (°C)", -10.0, 20.0, 5.0, step=1.0)
+autonomy_days = st.sidebar.slider("Battery Autonomy (days)", 0.5, 3.0, 1.5, step=0.5)
+
+# Run the microgrid analysis
+mg = run_microgrid_analysis(
+    t_target=target_temp,
+    outdoor_temps=outdoor_temps,
+    solar_irradiance=solar_irradiance,
+    wall_area=wall_area, wall_r=wall_props["r_value"],
+    roof_area=roof_area, roof_r=roof_props["r_value"],
+    window_area=window_area, window_r=window_props["r_value"],
+    door_area=door_area, door_r=0.1,
+    volume=shelter_volume, ach=ach, occupants=occupants,
+    autonomy_days=autonomy_days,
+)
+
+# Row 1: Primary energy metrics
+mg_r1c1, mg_r1c2, mg_r1c3, mg_r1c4 = st.columns(4)
+with mg_r1c1:
+    st.metric("🔌 Daily Heating Load", f"{mg['total_heating_kwh']:.1f} kWh/day")
+with mg_r1c2:
+    st.metric("⚡ Peak Heater Demand", f"{mg['peak_demand_w']:,.0f} W")
+with mg_r1c3:
+    st.metric("☀️ Solar PV Array", f"{mg['pv_area_m2']:.1f} m²",
+              help=f"{mg['pv_peak_kw']:.1f} kWp | Altitude-boosted, temp-derated")
+with mg_r1c4:
+    st.metric("🔋 48V Battery Bank", f"{mg['battery_ah_48v']:,.0f} Ah",
+              help=f"{mg['battery_kwh_gross']:.1f} kWh gross | {mg['autonomy_days']}d autonomy | Cold derating: {mg['cold_derating_factor']:.0%}")
+
+# Row 2: Cost & diesel comparison
+mg_r2c1, mg_r2c2, mg_r2c3, mg_r2c4 = st.columns(4)
+with mg_r2c1:
+    st.metric("💰 Total System Cost", f"₹{mg['total_system_cost_inr']:,.0f}")
+with mg_r2c2:
+    st.metric("🔧 Inverter Size", f"{mg['inverter_kw']:.1f} kW")
+with mg_r2c3:
+    st.metric("⛽ Diesel Equivalent", f"{mg['diesel_litres_per_day']:.1f} L/day",
+              help=f"₹{mg['diesel_cost_per_day']:,.0f}/day — the cost this microgrid replaces")
+with mg_r2c4:
+    st.metric("💸 30-Day Diesel Savings", f"₹{mg['diesel_savings_30d']:,.0f}")
+
+# Charts row
+mg_plot1, mg_plot2 = st.columns(2)
+
+with mg_plot1:
+    # Hourly Auxiliary Heater Demand
+    fig_mg_power = go.Figure()
+    fig_mg_power.add_trace(go.Bar(
+        x=hours, y=mg['q_aux_hourly'],
+        marker_color='#e67e22', name='Heater Power (W)',
+        hovertemplate='Hour %{x}: %{y:,.0f} W<extra></extra>',
+    ))
+    fig_mg_power.add_trace(go.Scatter(
+        x=hours, y=mg['solar_gen_hourly'],
+        mode='lines+markers', name='Solar PV Generation (Wh)',
+        line=dict(color='#f1c40f', width=2),
+        hovertemplate='Hour %{x}: %{y:,.0f} Wh<extra></extra>',
+    ))
+    fig_mg_power.add_hline(
+        y=mg['peak_demand_w'], line_dash='dash', line_color='#c0392b',
+        annotation_text=f"Peak: {mg['peak_demand_w']:,.0f}W",
+        annotation_position='top right',
+    )
+    fig_mg_power.update_layout(
+        title=f"Hourly Power: Heater Demand vs Solar Generation",
+        xaxis_title="Hour of Day", yaxis_title="Power (W)",
+        hovermode='x unified', height=400,
+        barmode='overlay',
+    )
+    st.plotly_chart(fig_mg_power, use_container_width=True)
+
+with mg_plot2:
+    # Battery State-of-Charge Simulation
+    soc_hours = list(range(25))  # 0 to 24 inclusive
+    fig_mg_soc = go.Figure()
+
+    # SoC fill area
+    fig_mg_soc.add_trace(go.Scatter(
+        x=soc_hours, y=mg['soc_hourly'],
+        mode='lines+markers', name='Battery SoC',
+        line=dict(color='#2ecc71', width=3),
+        fill='tozeroy', fillcolor='rgba(46, 204, 113, 0.15)',
+        marker=dict(size=5),
+        hovertemplate='Hour %{x}: %{y:.1f}%<extra></extra>',
+    ))
+
+    # Critical threshold lines
+    fig_mg_soc.add_hline(y=20, line_dash='dash', line_color='#e74c3c',
+                          annotation_text='Critical (20%)', annotation_position='bottom right')
+    fig_mg_soc.add_hline(y=50, line_dash='dot', line_color='#f39c12',
+                          annotation_text='Low (50%)', annotation_position='bottom right')
+
+    # Color the min SoC annotation
+    min_soc = mg['min_soc']
+    soc_status = "CRITICAL" if min_soc < 20 else ("LOW" if min_soc < 50 else "HEALTHY")
+    soc_color = '#e74c3c' if min_soc < 20 else ('#f39c12' if min_soc < 50 else '#2ecc71')
+
+    fig_mg_soc.update_layout(
+        title=f"Battery SoC Simulation — Min: {min_soc:.1f}% ({soc_status})",
+        xaxis_title="Hour of Day", yaxis_title="State of Charge (%)",
+        yaxis=dict(range=[0, 105]),
+        hovermode='x unified', height=400,
+    )
+    st.plotly_chart(fig_mg_soc, use_container_width=True)
+
+# Energy balance breakdown
+with st.expander("📊 Detailed Energy Balance"):
+    eb_col1, eb_col2 = st.columns(2)
+    with eb_col1:
+        # Losses vs Gains stacked area
+        fig_eb = go.Figure()
+        fig_eb.add_trace(go.Scatter(
+            x=hours, y=mg['q_loss_hourly'], mode='lines', name='Total Heat Loss',
+            line=dict(color='#3498db', width=2), fill='tozeroy',
+            fillcolor='rgba(52, 152, 219, 0.15)',
+        ))
+        fig_eb.add_trace(go.Scatter(
+            x=hours, y=mg['q_gain_hourly'], mode='lines', name='Natural Heat Gain',
+            line=dict(color='#2ecc71', width=2), fill='tozeroy',
+            fillcolor='rgba(46, 204, 113, 0.15)',
+        ))
+        fig_eb.add_trace(go.Scatter(
+            x=hours, y=mg['q_aux_hourly'], mode='lines', name='Aux Heater (Deficit)',
+            line=dict(color='#e74c3c', width=3, dash='dash'),
+        ))
+        fig_eb.update_layout(
+            title="Thermal Energy Balance",
+            xaxis_title="Hour", yaxis_title="Power (W)",
+            hovermode='x unified', height=350,
+        )
+        st.plotly_chart(fig_eb, use_container_width=True)
+
+    with eb_col2:
+        # System cost breakdown pie chart
+        fig_cost = go.Figure(go.Pie(
+            labels=['Solar PV Panels', 'Battery Bank (LFP)', 'Inverter + BOS'],
+            values=[mg['pv_cost_inr'], mg['battery_cost_inr'], mg['inverter_cost_inr']],
+            marker=dict(colors=['#f1c40f', '#2ecc71', '#3498db']),
+            textinfo='label+percent',
+            hovertemplate='%{label}: ₹%{value:,.0f}<extra></extra>',
+            hole=0.4,
+        ))
+        fig_cost.update_layout(
+            title=f"System Cost Breakdown — ₹{mg['total_system_cost_inr']:,.0f}",
+            height=350,
+        )
+        st.plotly_chart(fig_cost, use_container_width=True)
+
+# SoC health alert
+if min_soc < 20:
+    st.error(f"🔴 CRITICAL: Battery drops to {min_soc:.1f}% SoC — shelter heating will fail overnight. Increase PV area or battery capacity.")
+elif min_soc < 50:
+    st.warning(f"🟡 LOW: Battery reaches {min_soc:.1f}% SoC — marginal reserve. Consider increasing autonomy or PV area.")
+else:
+    st.success(f"🟢 HEALTHY: Battery maintains {min_soc:.1f}% minimum SoC — system is self-sufficient.")
 
 # ============ AI AUTO-DESIGNER (NSGA-II) ============
 st.markdown("---")
