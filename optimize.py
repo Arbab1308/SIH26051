@@ -32,6 +32,7 @@ from physics import (
     calculate_metabolic_heat,
     calculate_ventilation_loss,
 )
+from supply_chain import get_available_materials, get_delivered_cost
 
 
 def simulate_shelter(wall_name, roof_name, window_name,
@@ -52,7 +53,8 @@ def simulate_shelter(wall_name, roof_name, window_name,
     window_weight = window_area * window_props["density"] * 0.01
     total_weight = wall_weight + roof_weight + window_weight
 
-    # Cost calculations
+    # Cost calculations (using base cost if location not provided)
+    # This is a fallback; the actual optimizer will use delivered cost
     total_cost = (
         wall_weight * wall_props["cost_per_kg"]
         + roof_weight * roof_props["cost_per_kg"]
@@ -141,7 +143,8 @@ class ShelterOptProblem(Problem):
     def __init__(self, wall_area, roof_area, window_area, door_area,
                  shelter_volume, occupants, ach,
                  outdoor_temps, solar_irradiance, initial_temp,
-                 max_weight=2500, max_cost=150000, max_glow=0.5):
+                 max_weight=2500, max_cost=150000, max_glow=0.5,
+                 location_name="Leh Cantonment"):
 
         n_wall = len(WALL_MATERIALS)
         n_roof = len(ROOF_MATERIALS)
@@ -172,6 +175,8 @@ class ShelterOptProblem(Problem):
         self.max_weight = max_weight
         self.max_cost = max_cost
         self.max_glow = max_glow
+        self.location_name = location_name
+        self.available_mats = get_available_materials(location_name)
 
     def _evaluate(self, X, out, *args, **kwargs):
         F = np.zeros((X.shape[0], 3))
@@ -182,10 +187,14 @@ class ShelterOptProblem(Problem):
             roof_idx = int(np.clip(x[1], 0, len(ROOF_MATERIALS) - 1))
             win_idx = int(np.clip(x[2], 0, len(WINDOW_MATERIALS) - 1))
 
+            wall_name = WALL_MATERIALS[wall_idx]
+            roof_name = ROOF_MATERIALS[roof_idx]
+            window_name = WINDOW_MATERIALS[win_idx]
+
             result = simulate_shelter(
-                wall_name=WALL_MATERIALS[wall_idx],
-                roof_name=ROOF_MATERIALS[roof_idx],
-                window_name=WINDOW_MATERIALS[win_idx],
+                wall_name=wall_name,
+                roof_name=roof_name,
+                window_name=window_name,
                 wall_area=self.wall_area,
                 roof_area=self.roof_area,
                 window_area=self.window_area,
@@ -197,15 +206,30 @@ class ShelterOptProblem(Problem):
                 solar_irradiance=self.solar_irradiance,
                 initial_temp=self.initial_temp,
             )
+            
+            # Recalculate cost with delivered cost
+            wall_weight = self.wall_area * MATERIALS[wall_name]["density"] * 0.20
+            roof_weight = self.roof_area * MATERIALS[roof_name]["density"] * 0.15
+            window_weight = self.window_area * MATERIALS[window_name]["density"] * 0.01
+            
+            delivered_cost = (
+                wall_weight * get_delivered_cost(wall_name, self.location_name) +
+                roof_weight * get_delivered_cost(roof_name, self.location_name) +
+                window_weight * get_delivered_cost(window_name, self.location_name)
+            )
 
             # Objectives (all minimized)
             F[i, 0] = result["total_weight"]
-            F[i, 1] = result["total_cost"]
+            F[i, 1] = delivered_cost
             F[i, 2] = -result["min_temp"]  # Negate: minimizing = maximizing warmth
+            
+            # Infinite cost if unavailable
+            if wall_name not in self.available_mats or roof_name not in self.available_mats or window_name not in self.available_mats:
+                F[i, 1] = float('inf')
 
             # Constraints (g <= 0 is feasible)
             G[i, 0] = result["total_weight"] - self.max_weight
-            G[i, 1] = result["total_cost"] - self.max_cost
+            G[i, 1] = delivered_cost - self.max_cost
             G[i, 2] = result["max_ir_glow"] - self.max_glow
 
         out["F"] = F
@@ -216,6 +240,7 @@ def run_optimization(wall_area, roof_area, window_area, door_area,
                      shelter_volume, occupants, ach,
                      outdoor_temps, solar_irradiance, initial_temp,
                      max_weight=2500, max_cost=150000, max_glow=0.5,
+                     location_name="Leh Cantonment",
                      pop_size=100, n_gen=50, seed=42):
     """
     Execute the NSGA-II optimization and return the top Pareto-optimal blueprints.
@@ -239,6 +264,7 @@ def run_optimization(wall_area, roof_area, window_area, door_area,
         max_weight=max_weight,
         max_cost=max_cost,
         max_glow=max_glow,
+        location_name=location_name
     )
 
     algorithm = NSGA2(
@@ -293,12 +319,22 @@ def run_optimization(wall_area, roof_area, window_area, door_area,
 
             comfort_hours = sum(1 for t in result["shelter_temps"] if t >= -10)
 
+            wall_weight = wall_area * MATERIALS[wall_name]["density"] * 0.20
+            roof_weight = roof_area * MATERIALS[roof_name]["density"] * 0.15
+            window_weight = window_area * MATERIALS[window_name]["density"] * 0.01
+            
+            delivered_cost = (
+                wall_weight * get_delivered_cost(wall_name, location_name) +
+                roof_weight * get_delivered_cost(roof_name, location_name) +
+                window_weight * get_delivered_cost(window_name, location_name)
+            )
+
             blueprints.append({
                 "wall": wall_name,
                 "roof": roof_name,
                 "window": window_name,
                 "total_weight": result["total_weight"],
-                "total_cost": result["total_cost"],
+                "total_cost": delivered_cost,
                 "min_temp": result["min_temp"],
                 "max_temp": result["max_temp"],
                 "max_ir_glow": result["max_ir_glow"],

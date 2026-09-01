@@ -21,11 +21,29 @@ from physics import (
 from optimize import run_optimization
 from solar_terrain import run_terrain_shadow_pipeline
 from microgrid import run_microgrid_analysis
+from multi_day import run_multi_day_simulation
+from scenarios import get_scenario_names, get_scenario
+from supply_chain import get_location, get_delivered_cost, get_lead_time
 
 st.set_page_config(page_title="Thermal Shelter Simulator", layout="wide")
 st.title("🏔️ Ladakh Thermal Shelter Simulator (SIH26051)")
 
-# Sidebar: Input Parameters
+# Sidebar Controls
+st.sidebar.header("🎯 IA Deployment Scenarios")
+scenario_name = st.sidebar.selectbox("Select Scenario", ["Manual Configuration"] + get_scenario_names())
+
+# If a scenario is selected, load its values into session state (or use them directly)
+if scenario_name != "Manual Configuration":
+    scen = get_scenario(scenario_name)
+    st.sidebar.info(scen["description"])
+    
+st.sidebar.header("Simulation Mode")
+sim_mode = st.sidebar.radio("Select Mode", ["Single Day (24h)", "Multi-Day (7-30 days)"])
+
+if sim_mode == "Multi-Day (7-30 days)":
+    num_days = st.sidebar.slider("Number of Days", 7, 30, 7)
+    use_api = st.sidebar.checkbox("Use Live Weather API", value=False, help="Requires internet. Falls back to synthetic if offline.")
+
 st.sidebar.header("Shelter Configuration")
 
 # Shelter Dimensions
@@ -100,6 +118,20 @@ deploy_date = st.sidebar.date_input("Deployment Date", value=date_type.today())
 terrain_radius = st.sidebar.slider("Scan Radius (km)", 1.0, 10.0, 5.0, step=0.5)
 diffuse_pct = st.sidebar.slider("Shadow Diffuse Fraction (%)", 5, 15, 10, help="Diffused solar radiation under shadow (Cloud cover dependent)") / 100.0
 
+# ============ SCENARIO OVERRIDE ============
+if scenario_name != "Manual Configuration":
+    scen = get_scenario(scenario_name)
+    st.info(f"🎯 **Scenario Loaded:** {scenario_name} - {scen['description']}")
+    wall_material = scen["wall_material"]
+    roof_material = scen["roof_material"]
+    window_material = scen["window_material"]
+    deploy_lat = scen["lat"]
+    deploy_lon = scen["lon"]
+    deploy_date = scen["start_date"]
+    occupants = scen["occupants"]
+    diffuse_pct = scen["diffuse_fraction"]
+    ach = scen["ach"]
+
 # Process terrain shadow if enabled
 terrain_result = None
 solar_irradiance = solar_irradiance_raw.copy()
@@ -124,7 +156,129 @@ if enable_terrain:
         st.sidebar.error(f"⚠️ {terrain_result.get('error_msg', 'API error')} — using raw solar data")
 
 # ============ SIMULATION ============
-st.header("🔬 Simulation Results")
+if sim_mode == "Multi-Day (7-30 days)":
+    st.header(f"📅 Multi-Day Simulation Results ({num_days} Days)")
+    
+    config = {
+        "lat": deploy_lat,
+        "lon": deploy_lon,
+        "start_date": deploy_date,
+        "wall_material": wall_material,
+        "roof_material": roof_material,
+        "window_material": window_material,
+        "wall_area": wall_area,
+        "roof_area": roof_area,
+        "window_area": window_area,
+        "door_area": door_area,
+        "volume": shelter_volume,
+        "ach": ach,
+        "occupants": occupants,
+        "metabolic_watts": metabolic_watts,
+        "terrain_radius_km": terrain_radius,
+        "diffuse_fraction": diffuse_pct,
+        "initial_temp": initial_temp,
+        "target_temp": 5.0
+    }
+    
+    with st.spinner(f"🚀 Running {num_days}-day physics simulation..."):
+        multi_res = run_multi_day_simulation(config, num_days=num_days, use_api=use_api)
+        
+    if multi_res["status"] == "ok":
+        sum_data = multi_res["summary"]
+        
+        st.subheader("📊 30-Day Performance Overview")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Avg Min Temp", f"{sum_data['avg_min_temp']:.1f} °C")
+        col2.metric("Avg Max Temp", f"{sum_data['avg_max_temp']:.1f} °C")
+        col3.metric("Hypothermia Hours", sum_data['total_hypothermia_hours'], help="Hours < -20°C")
+        col4.metric("Max Wind", f"{sum_data['max_wind_kmh']:.1f} km/h")
+        
+        # Plot temperatures
+        days = [d["day_idx"] + 1 for d in multi_res["daily_results"]]
+        min_temps = [d["min_temp"] for d in multi_res["daily_results"]]
+        max_temps = [d["max_temp"] for d in multi_res["daily_results"]]
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=days, y=max_temps, name="Max Temp", line=dict(color="red")))
+        fig.add_trace(go.Scatter(x=days, y=min_temps, name="Min Temp", line=dict(color="blue")))
+        fig.add_hline(y=5.0, line_dash="dash", annotation_text="Survival Target (5°C)", line_color="green")
+        fig.add_hline(y=-20.0, line_dash="dash", annotation_text="Hypothermia Risk (-20°C)", line_color="purple")
+        fig.update_layout(title="Daily Temperature Extremes", xaxis_title="Day", yaxis_title="Temperature (°C)")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.subheader("💨 Wind Load & Structural Analysis")
+        for day_res in multi_res["daily_results"]:
+            wind = day_res["wind_analysis"]
+            if wind["status"] != "Safe":
+                st.warning(f"Day {day_res['day_idx']+1}: {wind['warnings'][0]} (Peak wind: {wind['max_wind_kmh']} km/h)")
+                
+        # --- PHASE 2 & 3 INTELLIGENCE DASHBOARD ---
+        st.markdown("---")
+        st.header("🧠 Advanced Intelligence Services")
+        
+        col_risk, col_fail = st.columns(2)
+        
+        with col_risk:
+            st.subheader("🩺 Cold Casualty Risk")
+            casualty = multi_res.get("casualty_risk", {})
+            risk_pct = casualty.get('cumulative_risk_pct', 0)
+            status = casualty.get('status', 'SAFE')
+            
+            if status == "CRITICAL RISK":
+                st.error(f"**{status}**: {risk_pct}% Cumulative Risk of Hypothermia over {num_days} days.")
+            elif status == "WARNING":
+                st.warning(f"**{status}**: {risk_pct}% Cumulative Risk of Hypothermia over {num_days} days.")
+            else:
+                st.success(f"**{status}**: {risk_pct}% Cumulative Risk of Hypothermia.")
+            
+            st.caption(f"High risk days (>10% daily risk): {casualty.get('high_risk_days_count', 0)}")
+            
+        with col_fail:
+            st.subheader("🔧 Material Degradation (Failure Modes)")
+            failures = multi_res.get("material_failures", [])
+            if not failures:
+                st.success("✅ No structural or material failures detected during deployment.")
+            else:
+                for f in failures:
+                    st.error(f"**Day {f['day']} - {f['material']} Failure:** {f['mode']}")
+                    st.caption(f"**Cause:** {f['cause']}")
+                    st.caption(f"**Fix:** {f['recommendation']}")
+                    
+        st.markdown("---")
+        st.subheader("📦 Supply Chain & Logistics Constraints")
+        
+        # Determine the nearest supply hub based on coordinates (simplified mapping)
+        supply_location = "Leh Cantonment"
+        if "DBO" in scenario_name or deploy_lat > 35.0:
+            supply_location = "DBO (Daulat Beg Oldi)"
+        elif "Siachen" in scenario_name:
+            supply_location = "Siachen Base Camp"
+        elif "Khardung" in scenario_name or deploy_lat > 34.2:
+            supply_location = "Khardung La Pass"
+            
+        loc_info = get_location(supply_location)
+        st.info(f"📍 **Nearest Supply Hub:** {supply_location} (Tier {loc_info['supply_tier']}) - Transport: {loc_info['transport_mode']}")
+        
+        supply_cols = st.columns(3)
+        materials_used = [("Wall", wall_material), ("Roof", roof_material), ("Window", window_material)]
+        
+        for i, (component, mat) in enumerate(materials_used):
+            with supply_cols[i]:
+                lead = get_lead_time(mat, supply_location)
+                cost = get_delivered_cost(mat, supply_location)
+                
+                st.markdown(f"**{component}:** {mat}")
+                if lead == -1:
+                    st.error(f"❌ UNAVAILABLE at {supply_location}")
+                else:
+                    st.success(f"✅ Lead Time: {lead} days | Cost: ₹{cost:.0f}/kg")
+        
+    else:
+        st.error("Simulation failed.")
+        
+    st.stop() # Stop rendering the Single-Day UI
+
+st.header("🔬 Single-Day Simulation Results")
 
 # Get material properties
 wall_props = MATERIALS[wall_material]
@@ -876,3 +1030,50 @@ st.download_button(
     mime="application/pdf",
     use_container_width=True
 )
+
+# ============ GENERATIVE AI OPTIMIZER ============
+st.markdown("---")
+st.header("🧬 Generative AI Shelter Optimizer (NSGA-II)")
+st.caption("Evolves the perfect shelter blueprint by balancing cost, weight, and thermal performance using genetic algorithms. Supply-chain aware.")
+
+with st.expander("⚙️ Configure Optimizer Constraints"):
+    opt_col1, opt_col2, opt_col3 = st.columns(3)
+    max_weight_opt = opt_col1.number_input("Max Allowable Weight (kg)", 500, 10000, 2500, step=100)
+    max_cost_opt = opt_col2.number_input("Max Budget (INR)", 50000, 1000000, 250000, step=10000)
+    max_glow_opt = opt_col3.number_input("Max IR Glow (°C)", 0.1, 5.0, 1.0, step=0.1)
+    run_opt_btn = st.button("🚀 Run Multi-Objective Optimization (NSGA-II)", type="primary")
+
+if run_opt_btn:
+    with st.spinner(f"🧬 Evolving optimal blueprints for {scenario_name}... (This takes a few seconds)"):
+        loc_name = "Leh Cantonment"
+        if scenario_name != "Manual Configuration":
+            loc_name = "DBO (Daulat Beg Oldi)" if "DBO" in scenario_name else ("Siachen Base Camp" if "Siachen" in scenario_name else "Leh Cantonment")
+            
+        optimal_blueprints = run_optimization(
+            wall_area=wall_area, roof_area=roof_area, window_area=window_area, door_area=door_area,
+            shelter_volume=shelter_volume, occupants=occupants, ach=ach,
+            outdoor_temps=outdoor_temps, solar_irradiance=solar_irradiance, initial_temp=initial_temp,
+            max_weight=max_weight_opt, max_cost=max_cost_opt, max_glow=max_glow_opt,
+            location_name=loc_name,
+            pop_size=50, n_gen=20 # Reduced for demo speed
+        )
+        
+    if not optimal_blueprints:
+        st.error(f"❌ No valid blueprints found for {loc_name} within these constraints. Try increasing budget or weight limit.")
+    else:
+        st.success(f"✅ Found {len(optimal_blueprints)} Pareto-optimal designs for {loc_name}.")
+        
+        for i, bp in enumerate(optimal_blueprints[:3]): # Show top 3
+            st.subheader(f"🏆 Top Design #{i+1}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Wall Material", bp['wall'])
+            c2.metric("Roof Material", bp['roof'])
+            c3.metric("Cost (Delivered)", f"₹ {bp['total_cost']:,.0f}")
+            c4.metric("Weight", f"{bp['total_weight']:,.0f} kg")
+            
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric("Min Internal Temp", f"{bp['min_temp']:.1f} °C")
+            c6.metric("Comfort Hours", f"{bp['comfort_hours']} / 24")
+            c7.metric("IR Glow", f"+{bp['max_ir_glow']:.2f} °C")
+            c8.metric("Window Material", bp['window'])
+            st.divider()
