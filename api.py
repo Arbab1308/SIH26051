@@ -12,6 +12,7 @@ from wind_load import run_wind_analysis, get_max_safe_wind
 from optimize import run_optimization
 from weather_service import fetch_weather
 from casualty_risk import calculate_wind_chill, frostbite_risk
+from swarm_microgrid import ShelterNode, route_swarm_energy, manage_swarm_batteries
 
 app = FastAPI(
     title="DRDO Shelter Simulator API",
@@ -137,6 +138,49 @@ async def predict_frostbite(request: Request, req: CasualtyRequest):
                 "input_wind_kmh": req.wind_speed_kmh,
                 "effective_wind_chill_c": round(wct, 2),
                 "frostbite_assessment": risk
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# 4. SWARM MICROGRID API
+# ==========================================
+class SwarmRequest(BaseModel):
+    solar_irradiance: float = Field(..., example=800.0, ge=0.0)
+    outdoor_temps_2h: List[float] = Field(..., example=[-20.0, -22.0])
+    current_hour: int = Field(..., example=14, ge=0, le=23)
+
+@app.post("/swarm/manage-fleet", tags=["Microgrid Operations"])
+@limiter.limit("10/minute")
+async def manage_swarm_fleet(request: Request, req: SwarmRequest):
+    """
+    Executes Predictive Energy Routing and Virtual Power Plant (VPP) battery balancing
+    across a decentralized swarm of 10 tactical shelters.
+    """
+    try:
+        # Generate 10 shelters with varying states to demonstrate the algorithm
+        shelters = [
+            ShelterNode(1, initial_temp=-5.0, initial_soc=30, health_cycles=6000), # Cold, low batt
+            ShelterNode(2, initial_temp=2.0, initial_soc=85, health_cycles=1000),  # Warm, high batt
+            ShelterNode(3, initial_temp=-1.0, initial_soc=50, health_cycles=4000),
+            ShelterNode(4, initial_temp=4.0, initial_soc=90, health_cycles=500),
+            ShelterNode(5, initial_temp=-8.0, initial_soc=20, health_cycles=7000), # Very cold
+            ShelterNode(6, initial_temp=5.0, initial_soc=100, health_cycles=200),
+            ShelterNode(7, initial_temp=1.0, initial_soc=45, health_cycles=8500),  # Failing battery
+            ShelterNode(8, initial_temp=-2.0, initial_soc=60, health_cycles=3000),
+            ShelterNode(9, initial_temp=3.0, initial_soc=75, health_cycles=1500),
+            ShelterNode(10, initial_temp=6.0, initial_soc=95, health_cycles=100),
+        ]
+        
+        routing = route_swarm_energy(shelters, req.solar_irradiance, req.outdoor_temps_2h, f"{req.current_hour}:00 IST")
+        vpp_status = manage_swarm_batteries(shelters, req.current_hour)
+        
+        return {
+            "status": "success",
+            "data": {
+                "energy_routing_matrix": routing,
+                "virtual_power_plant_status": vpp_status
             }
         }
     except Exception as e:

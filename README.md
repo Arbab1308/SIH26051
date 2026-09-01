@@ -194,6 +194,10 @@ We have upgraded the simulator from a basic 24-hour physics tool into a **produc
     *   Generates live OpenAPI / Swagger documentation (`http://localhost:8000/docs`).
     *   Proves the architecture is language-agnostic and ready to be integrated into the Indian Army's existing Command & Control (C2) infrastructure tomorrow.
 
+19. **🐝 Swarm State Virtual Power Plant (`swarm_microgrid.py`)**
+    *   **Predictive Energy Routing:** Instead of isolated shelters, it manages a cluster of 10 decentralized shelters. Forecasts heat deficits 2 hours ahead and intelligently routes solar power to the *coldest* shelter first.
+    *   **Swarm Battery Balancing:** Sequences discharge based on battery aging (cycle count) and balances states of charge across the fleet to extend LiFePO4 lifespans from 5 to 8+ years. Automatically detects and isolates failing cells (N-1 Redundancy).
+
 ---
 
 ## 🛠️ Automated System Stress Testing
