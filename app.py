@@ -140,9 +140,7 @@ for hour in range(24):
     t_surf = calculate_external_surface_temp(current_temp, t_out, wall_props["r_value"])
     external_wall_temps.append(t_surf)
     
-    # Heat transfers calculations
-    q_wall = calculate_heat_transfer(current_temp, t_out, wall_area, wall_props["r_value"])
-    
+   
   # Heat transfers calculations
     q_wall = calculate_heat_transfer(current_temp, t_out, wall_area, wall_props["r_value"])
     q_roof = calculate_heat_transfer(current_temp, t_out, roof_area, roof_props["r_value"])
@@ -527,67 +525,179 @@ results_df = pd.DataFrame({
 csv = results_df.to_csv(index=False)
 st.download_button(label="Download Results as CSV", data=csv, file_name="shelter_simulation_results.csv", mime="text/csv")
 
-# ============  TACTICAL PDF EXPORTER ============
-st.markdown("---")
-st.header("📄 Commanding Officer's Dossier")
+# ============  TACTICAL PDF EXPORTER 
+import os
+import matplotlib.pyplot as plt
+from fpdf import FPDF
+
+class TacticalDossierPDF(FPDF):
+    def header(self):
+        # Dark Slate Banner
+        self.set_fill_color(30, 41, 59)
+        self.rect(0, 0, 210, 16, 'F')
+        self.set_font("Arial", 'B', 9)
+        self.set_text_color(255, 255, 255)  # FIXED
+        self.cell(0, 6, "RESTRICTED // DRDO HIGH-ALTITUDE FIELD SIMULATION // TACTICAL DOSSIER", 0, 1, 'C')
+        self.ln(4)
+
+    def footer(self):
+        self.set_y(-12)
+        self.set_font("Arial", 'I', 8)
+        self.set_text_color(148, 163, 184)  # FIXED
+        self.cell(0, 8, f"Page {self.page_no()} | DRDO SIH26051 Tactical Thermal Simulation Engine", 0, 0, 'C')
+
+def create_dossier_charts(hours, outdoor_temps, shelter_temps, q_gains, q_losses, terrain_enabled=False, terrain_res=None):
+    """Generates high-resolution 300 DPI analytical charts for the PDF dossier."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2), dpi=300)
+    
+    # --- Chart 1: Thermal Trajectory ---
+    ax1.plot(hours, outdoor_temps, label="Ambient Air", color="#3b82f6", linestyle="--", linewidth=1.5)
+    ax1.plot(hours, shelter_temps, label="Shelter Interior", color="#ef4444", linewidth=2.5)
+    ax1.axhline(y=-10, color="#10b981", linestyle=":", linewidth=1.5, label="Comfort Baseline (-10 C)")
+    ax1.set_title("24-Hour Thermal Survival Curve", fontsize=10, fontweight="bold", pad=8)
+    ax1.set_xlabel("Hour of Day (00:00 - 23:00)", fontsize=8)
+    ax1.set_ylabel("Temperature (deg C)", fontsize=8)
+    ax1.set_xlim(0, 23)
+    ax1.grid(True, linestyle="--", alpha=0.4)
+    ax1.legend(fontsize=7, loc="lower left")
+
+    # --- Chart 2: Dynamic Energy Balance ---
+    ax2.bar(hours - 0.2, q_gains, width=0.4, label="Heat Gain (Solar+Troops)", color="#f59e0b", alpha=0.85)
+    ax2.bar(hours + 0.2, [-q for q in q_losses], width=0.4, label="Heat Loss (Envelope+Vent)", color="#06b6d4", alpha=0.85)
+    ax2.axhline(y=0, color="#64748b", linewidth=0.8)
+    ax2.set_title("Dynamic Heat Transfer Balance (Watts)", fontsize=10, fontweight="bold", pad=8)
+    ax2.set_xlabel("Hour of Day (00:00 - 23:00)", fontsize=8)
+    ax2.set_ylabel("Power Transfer (W)", fontsize=8)
+    ax2.set_xlim(-0.5, 23.5)
+    ax2.grid(True, linestyle="--", alpha=0.4)
+    ax2.legend(fontsize=7, loc="upper right")
+
+    plt.tight_layout()
+    chart_filename = "temp_dossier_chart.png"
+    plt.savefig(chart_filename, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    return chart_filename
 
 def generate_pdf_report():
-    pdf = FPDF()
+    pdf = TacticalDossierPDF()
+    pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_page()
+    pdf.set_text_color(30, 41, 59)  # FIXED
     
-    # Title
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt="DRDO Tactical Shelter Deployment Dossier", ln=True, align='C')
-    pdf.ln(10)
+    # Document Header Title
+    pdf.set_font("Arial", 'B', 15)
+    pdf.cell(0, 8, "TACTICAL SHELTER THERMAL ASSESSMENT DOSSIER", ln=True)
+    pdf.set_font("Arial", '', 8.5)
+    pdf.set_text_color(100, 116, 139)  # FIXED
+    pdf.cell(0, 4, f"Theatre: Ladakh High Altitude (34.15N, 77.58E) | Date: {deploy_date} | Alt: ~4,500m ASL", ln=True)
+    pdf.ln(3)
+
+    # Status KPI Callout Box
+    pdf.set_fill_color(248, 250, 252)
+    pdf.set_draw_color(203, 213, 225)
+    pdf.rect(10, 31, 190, 16, 'DF')
+    pdf.set_xy(14, 33)
+    pdf.set_font("Arial", 'B', 8.5)
+    pdf.set_text_color(15, 23, 42)  # FIXED
     
-    # 1. Configuration
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="1. Shelter Configuration", ln=True)
-    pdf.set_font("Arial", '', 11)
-    pdf.cell(200, 8, txt=f"Dimensions: {shelter_length}m (L) x {shelter_width}m (W) x {shelter_height}m (H)", ln=True)
-    pdf.cell(200, 8, txt=f"Total Volume: {shelter_volume:.1f} cubic meters", ln=True)
-    pdf.cell(200, 8, txt=f"Occupancy: {occupants} Troops", ln=True)
-    pdf.cell(200, 8, txt=f"Ventilation Rate: {ach} Air Changes/Hour", ln=True)
-    pdf.ln(5)
+    clean_airlift = airlift_status.replace('✅','').replace('⚠️','').replace('🚨','').replace('❌','').strip()
+    stealth_str = "OPTIMAL (INVISIBLE)" if max_temp_diff < 0.5 else ("MODERATE BLOOM" if max_temp_diff < 2.0 else "HIGH SIGNATURE (ALERT)")
     
-    # 2. Materials
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="2. Material Specifications", ln=True)
-    pdf.set_font("Arial", '', 11)
-    pdf.cell(200, 8, txt=f"Wall Material: {wall_material} (R-Value: {wall_props['r_value']})", ln=True)
-    pdf.cell(200, 8, txt=f"Roof Material: {roof_material} (R-Value: {roof_props['r_value']})", ln=True)
-    pdf.ln(5)
+    pdf.cell(90, 5, f"LOGISTICS PAYLOAD: {total_deployment_weight:,.0f} kg ({clean_airlift})", 0, 0)
+    pdf.cell(90, 5, f"IR STEALTH RATING: {stealth_str} (+{max_temp_diff:.2f} C)", 0, 1)
     
-    # 3. Thermal Performance
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="3. 24-Hour Thermal Survival Performance", ln=True)
-    pdf.set_font("Arial", '', 11)
-    pdf.cell(200, 8, txt=f"Minimum Internal Temperature: {min(shelter_temps):.1f} C", ln=True)
-    pdf.cell(200, 8, txt=f"Maximum Internal Temperature: {max(shelter_temps):.1f} C", ln=True)
-    pdf.cell(200, 8, txt=f"Comfortable Hours (Above -10 C): {comfort_hours} / 24", ln=True)
-    pdf.ln(5)
+    pdf.set_xy(14, 39)
+    pdf.set_font("Arial", '', 8.5)
+    pdf.cell(90, 5, f"THERMAL SURVIVAL: Min {min(shelter_temps):.1f} C | Max {max(shelter_temps):.1f} C | Avg {avg_temp:.1f} C", 0, 0)
     
-    # 4. Logistics & Stealth
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="4. Military Logistics & Stealth Capabilities", ln=True)
-    pdf.set_font("Arial", '', 11)
-    pdf.cell(200, 8, txt=f"Total Deployment Weight: {total_deployment_weight:,.0f} kg", ln=True)
-    pdf.cell(200, 8, txt=f"Estimated Material Cost: INR {total_cost_inr:,.0f}", ln=True)
-    pdf.cell(200, 8, txt=f"Airlift Feasibility: {airlift_status.replace('✅', '').replace('⚠️', '').replace('🚨', '').replace('❌', '').strip()}", ln=True)
+    # Shadow text fallback safely
+    shadow_txt = "Disabled"
+    if enable_terrain and terrain_result and terrain_result.get('status') == 'ok':
+        shadow_txt = f"{terrain_result['shadowed_hours']} hrs blocked"
+    pdf.cell(90, 5, f"TERRAIN SHADOW MAPPING: {shadow_txt}", 0, 1)
+    pdf.ln(6)
+
+    # --- Section 1: Specifications & Physical Configuration ---
+    pdf.set_font("Arial", 'B', 10)
+    pdf.set_text_color(15, 23, 42)  # FIXED
+    pdf.cell(0, 6, "1. Structural Specifications & Biological Heat Matrix", ln=True)
     
-    stealth_rating = "EXCELLENT" if max_temp_diff < 0.5 else ("MODERATE" if max_temp_diff < 2.0 else "DANGER (Glowing Target)")
-    pdf.cell(200, 8, txt=f"Max External Wall Heat Glow: +{max_temp_diff:.2f} C above ambient", ln=True)
-    pdf.cell(200, 8, txt=f"Thermal Stealth Rating: {stealth_rating}", ln=True)
+    pdf.set_fill_color(226, 232, 240)
+    pdf.set_font("Arial", 'B', 7.5)
+    pdf.cell(48, 5, "STRUCTURAL PARAMETER", 1, 0, 'L', True)
+    pdf.cell(47, 5, "CONFIGURATION", 1, 0, 'C', True)
+    pdf.cell(48, 5, "TACTICAL PARAMETER", 1, 0, 'L', True)
+    pdf.cell(47, 5, "SPECIFICATION", 1, 1, 'C', True)
     
-    # Output to string for Streamlit download
+    pdf.set_font("Arial", '', 7.5)
+    pdf.cell(48, 4.5, "Dimensions (L x W x H)", 1, 0, 'L')
+    pdf.cell(47, 4.5, f"{shelter_length:.1f}m x {shelter_width:.1f}m x {shelter_height:.1f}m", 1, 0, 'C')
+    pdf.cell(48, 4.5, "Active Occupants (Troops)", 1, 0, 'L')
+    pdf.cell(47, 4.5, f"{occupants} Personnel ({occupants*100} W Load)", 1, 1, 'C')
+
+    pdf.cell(48, 4.5, "Total Envelope Volume", 1, 0, 'L')
+    pdf.cell(47, 4.5, f"{shelter_volume:.1f} m3", 1, 0, 'C')
+    pdf.cell(48, 4.5, "Ventilation Rate (ACH)", 1, 0, 'L')
+    pdf.cell(47, 4.5, f"{ach:.1f} Air Changes/Hour", 1, 1, 'C')
+
+    pdf.cell(48, 4.5, "Wall Envelope Material", 1, 0, 'L')
+    pdf.cell(47, 4.5, f"{wall_material[:22]} (R={wall_props['r_value']})", 1, 0, 'C')
+    pdf.cell(48, 4.5, "Roof Insulation System", 1, 0, 'L')
+    pdf.cell(47, 4.5, f"{roof_material[:22]} (R={roof_props['r_value']})", 1, 1, 'C')
+
+    pdf.cell(48, 4.5, "Glazing Area & Type", 1, 0, 'L')
+    pdf.cell(47, 4.5, f"{window_area:.1f} m2 ({window_material[:18]})", 1, 0, 'C')
+    pdf.cell(48, 4.5, "Est. Procurement Cost", 1, 0, 'L')
+    pdf.cell(47, 4.5, f"INR {total_cost_inr:,.0f}", 1, 1, 'C')
+    pdf.ln(4)
+
+    # --- Section 2: High-Resolution Thermal Curves ---
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(0, 6, "2. High-Altitude Thermal Dynamics & Heat Flux Curves", ln=True)
+    
+    # Render and insert the chart
+    chart_path = create_dossier_charts(hours, outdoor_temps, shelter_temps, q_gains, q_losses)
+    pdf.image(chart_path, x=10, y=pdf.get_y(), w=190)
+    pdf.ln(78)
+
+    # --- Section 3: Field Engineering Assessment & Sign-Off ---
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(0, 6, "3. Tactical Survivability & Deployment Assessment", ln=True)
+    pdf.set_font("Arial", '', 8)
+    
+    narrative = (
+        f"Under simulated -20.0 C Ladakh operational conditions, the structure maintained an average interior temperature "
+        f"of {avg_temp:.1f} C with {comfort_hours}/24 hours above the -10.0 C survival baseline. Total thermal envelope "
+        f"mass stands at {total_mass:,.0f} kg with a combined deployment weight of {total_deployment_weight:,.0f} kg, "
+        f"validating deployment feasibility under: {clean_airlift}. "
+        f"Envelope external thermal differential is +{max_temp_diff:.2f} C relative to ambient, fulfilling "
+        f"thermal stealth parameters classified as '{stealth_str}'."
+    )
+    pdf.multi_cell(0, 4.5, narrative)
+    pdf.ln(4)
+
+    # Sign-off box
+    pdf.set_font("Arial", 'I', 7.5)
+    pdf.cell(95, 5, "Engineering Officer Sign-Off: ________________________", 0, 0, 'L')
+    pdf.cell(95, 5, "Document Auth: DRDO-DGRE-SIM-2026-T1", 0, 1, 'R')
+
+    # Cleanup temporary image file
+    if os.path.exists(chart_path):
+        os.remove(chart_path)
+
     return pdf.output(dest="S").encode("latin-1")
 
-# Adding  the Download Button to the UI
+# Streamlit UI Trigger
+st.markdown("---")
+st.header("📄 Tactical Mission Dossier (PDF)")
+st.caption("Generates a formal, unclassified military deployment dossier with embedded high-resolution 300-DPI charts.")
+
 pdf_bytes = generate_pdf_report()
 
 st.download_button(
-    label="📥 Download Tactical Dossier (PDF)",
+    label="📥 Download Tactical Dossier (with Embedded High-Res Charts)",
     data=pdf_bytes,
-    file_name="DRDO_Shelter_Dossier.pdf",
-    mime="application/pdf"
+    file_name=f"DRDO_Tactical_Dossier_{shelter_length}x{shelter_width}m.pdf",
+    mime="application/pdf",
+    use_container_width=True
 )
