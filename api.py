@@ -1,8 +1,12 @@
- from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 import datetime
+import asyncio
+import json
+import math
+import random
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -30,7 +34,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Add CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8501", "https://drdo.gov.in"], # Strict origins
+    allow_origins=["http://localhost:8501", "http://localhost:5173", "http://localhost:3000", "https://drdo.gov.in"],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
@@ -185,6 +189,53 @@ async def manage_swarm_fleet(request: Request, req: SwarmRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+# ==========================================
+# 5. WEBSOCKET TELEMETRY STREAM
+# ==========================================
+@app.websocket("/telemetry")
+async def telemetry_stream(websocket: WebSocket):
+    """
+    Streams live simulation telemetry to the 3D visualization frontend
+    at 1 Hz (1 JSON payload per second).
+    """
+    await websocket.accept()
+    hour = 0
+    try:
+        while True:
+            day = hour // 24
+            hour_of_day = hour % 24
+            # Synthetic diurnal cycle
+            base_temp = -25 + 5 * math.sin((day / 30) * math.pi)
+            diurnal = 8 * math.sin(((hour_of_day - 6) / 24) * 2 * math.pi)
+            outside_temp = round(base_temp + diurnal + random.uniform(-1.5, 1.5), 1)
+            solar = max(0, round(800 * math.sin(((hour_of_day - 7) / 10) * math.pi) * random.uniform(0.6, 1.0))) if 7 <= hour_of_day <= 17 else 0
+            wind = round(20 + 30 * random.random() + (15 if hour_of_day > 18 else 0))
+            shelter_temp = round(outside_temp + 18 + solar / 200 - wind / 40, 1)
+            stress = round(min(1.0, 0.1 + day * 0.025 + (0.2 if wind > 50 else 0)), 2)
+            failures = []
+            if day >= 7 and stress > 0.6:
+                failures.append('concrete_crack')
+            if day >= 15 and stress > 0.8:
+                failures.append('steel_corrosion')
+
+            payload = {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "day": day,
+                "hour": hour_of_day,
+                "shelter_temp": shelter_temp,
+                "outside_temp": outside_temp,
+                "solar_irradiance": solar,
+                "wind_speed": wind,
+                "battery_soc": max(5, round(100 - day * 2.5 - (10 if hour_of_day > 18 else 0) + solar / 50)),
+                "power_demand": round(3000 + abs(shelter_temp) * 100 + wind * 20),
+                "material_stress": stress,
+                "failures": failures,
+            }
+            await websocket.send_text(json.dumps(payload))
+            hour = (hour + 1) % 720
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        pass
 
 if __name__ == "__main__":
     import uvicorn

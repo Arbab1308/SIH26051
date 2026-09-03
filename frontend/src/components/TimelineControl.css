@@ -1,0 +1,122 @@
+/* ═══════════════════════════════════════════════════════════════
+   TimelineControl.css — Playback HUD
+   ═══════════════════════════════════════════════════════════════ */
+
+.timeline-control {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92vw, 900px);
+  background: rgba(10, 15, 30, 0.88);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  backdrop-filter: blur(16px);
+  padding: 12px 20px 10px;
+  z-index: 150;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── Playback Buttons ─────────────────────────── */
+.playback-buttons,
+.speed-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.playback-buttons button,
+.speed-buttons button {
+  background: rgba(0, 255, 255, 0.08);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  color: #cceeee;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.playback-buttons button:hover,
+.speed-buttons button:hover {
+  background: rgba(0, 255, 255, 0.18);
+  border-color: rgba(0, 255, 255, 0.5);
+}
+
+.playback-buttons button.active,
+.speed-buttons button.active {
+  background: rgba(0, 255, 200, 0.25);
+  border-color: #00ffcc;
+  color: #00ffcc;
+  box-shadow: 0 0 8px rgba(0, 255, 200, 0.3);
+}
+
+/* ── Timeline Slider ──────────────────────────── */
+.timeline-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  outline: none;
+}
+
+.timeline-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #00ffcc;
+  box-shadow: 0 0 8px rgba(0, 255, 200, 0.5);
+  cursor: pointer;
+}
+
+/* ── Info Bar ─────────────────────────────────── */
+.timeline-info {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 10px;
+  color: #6688aa;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.timeline-info strong {
+  color: #00ffdd;
+}
+
+/* ── Responsive ───────────────────────────────── */
+@media (max-width: 768px) {
+  .timeline-control {
+    width: 100%;
+    border-radius: 0;
+    padding: 8px 12px;
+  }
+
+  .timeline-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .timeline-slider {
+    order: -1;
+    width: 100%;
+    flex: none;
+  }
+
+  .playback-buttons button,
+  .speed-buttons button {
+    padding: 8px 12px;
+    font-size: 16px;
+    min-width: 48px;
+    min-height: 48px;
+  }
+}
