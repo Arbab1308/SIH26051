@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -28,6 +29,13 @@ from reporting import generate_multi_day_pdf
 
 st.set_page_config(page_title="Thermal Shelter Simulator", layout="wide")
 st.title("🏔️ Ladakh Thermal Shelter Simulator (SIH26051)")
+
+# ==========================================
+# 🚀 3D TACTICAL COMMAND CENTER (REACT EMBED)
+# ==========================================
+st.markdown("### 3D Tactical Visualization")
+components.iframe("http://localhost:5173", height=600, scrolling=False)
+st.markdown("---")
 
 # Sidebar Controls
 st.sidebar.header("🎯 IA Deployment Scenarios")
