@@ -91,12 +91,48 @@ function generateSyntheticData() {
 function DebugControls() {
   const shelter = useSimulationStore((s) => s.shelter);
   const setShelter = useSimulationStore((s) => s.setShelter);
+  const panels = useSimulationStore((s) => s.panels);
+  const setPanels = useSimulationStore((s) => s.setPanels);
 
   useControls('Shelter Dimensions', {
     length: { value: shelter.length, min: 4, max: 15, step: 0.5, onChange: (v) => setShelter({ length: v }) },
     width: { value: shelter.width, min: 2.5, max: 8, step: 0.5, onChange: (v) => setShelter({ width: v }) },
     height: { value: shelter.height, min: 2, max: 4, step: 0.1, onChange: (v) => setShelter({ height: v }) },
     wallThickness: { value: shelter.wallThickness, min: 0.05, max: 0.5, step: 0.05, onChange: (v) => setShelter({ wallThickness: v }) },
+  });
+
+  useControls('Materials (Phase 7 Preview)', {
+    wallMaterial: {
+      options: ['Brick', 'Concrete', 'PUF Sandwich Panel', 'Carbon Fiber'],
+      value: panels.materials.walls.name,
+      onChange: (v) => setPanels({ materials: { ...panels.materials, walls: { ...panels.materials.walls, name: v } } })
+    },
+    roofMaterial: {
+      options: ['PUF', 'Corrugated Steel', 'Titanium'],
+      value: panels.materials.roof.name,
+      onChange: (v) => setPanels({ materials: { ...panels.materials, roof: { ...panels.materials.roof, name: v } } })
+    }
+  });
+
+  useControls('AI Optimizer (NSGA-II)', {
+    "Run Generative Design": {
+      button: async () => {
+        alert("Running NSGA-II Genetic Algorithm... (Check backend terminal for logs)");
+        try {
+          const res = await fetch("http://localhost:8000/optimize/generate-blueprints", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pop_size: 10, n_gen: 5 })
+          });
+          const data = await res.json();
+          console.log("Optimized Blueprints:", data);
+          alert(`Success! Found ${data.blueprints_found} optimal blueprints. (See browser console for data)`);
+        } catch (e) {
+          alert("Error running optimizer. Is FastAPI running?");
+          console.error(e);
+        }
+      }
+    }
   });
 
   return null;
