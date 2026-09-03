@@ -82,7 +82,7 @@ export default function PanelSystem() {
     <div className="panel-system">
       {/* ── Connection Status ──────────────── */}
       <div className="connection-badge" style={{ color: wsConnected ? '#00ff88' : '#ff4444' }}>
-        {wsConnected ? '● LIVE' : '● OFFLINE'} | DAY {currentDay}/30 | {fps} FPS
+        {wsConnected ? '● LIVE' : '● OFFLINE'} | DAY {currentDay}/30
       </div>
 
       {/* ── 1. Thermal Panel ─────────────── */}

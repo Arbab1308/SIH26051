@@ -6,6 +6,7 @@
 import React, { Suspense, useEffect, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Environment, Grid, Stars, Html } from '@react-three/drei';
+import { Leva, useControls } from 'leva';
 import ShelterModel from './components/ShelterModel';
 import PanelSystem from './components/PanelSystem';
 import TimelineControl from './components/TimelineControl';
@@ -13,25 +14,6 @@ import ControlBar from './components/ControlBar';
 import useWebSocket from './hooks/useWebSocket';
 import useSimulationStore from './store/simulationStore';
 import './App.css';
-
-/* ── FPS Counter (updates store) ──────────────────────────────── */
-function FPSTracker() {
-  const frameCount = useRef(0);
-  const lastTime = useRef(performance.now());
-  const setFps = useSimulationStore((s) => s.setFps);
-
-  useFrame(() => {
-    frameCount.current++;
-    const now = performance.now();
-    if (now - lastTime.current >= 1000) {
-      setFps(frameCount.current);
-      frameCount.current = 0;
-      lastTime.current = now;
-    }
-  });
-
-  return null;
-}
 
 /* ── Ground Plane ─────────────────────────────────────────────── */
 function Ground() {
@@ -105,6 +87,21 @@ function generateSyntheticData() {
   return data;
 }
 
+/* ── Debug Controls (Leva) ───────────────────────────────────── */
+function DebugControls() {
+  const shelter = useSimulationStore((s) => s.shelter);
+  const setShelter = useSimulationStore((s) => s.setShelter);
+
+  useControls('Shelter Dimensions', {
+    length: { value: shelter.length, min: 4, max: 15, step: 0.5, onChange: (v) => setShelter({ length: v }) },
+    width: { value: shelter.width, min: 2.5, max: 8, step: 0.5, onChange: (v) => setShelter({ width: v }) },
+    height: { value: shelter.height, min: 2, max: 4, step: 0.1, onChange: (v) => setShelter({ height: v }) },
+    wallThickness: { value: shelter.wallThickness, min: 0.05, max: 0.5, step: 0.05, onChange: (v) => setShelter({ wallThickness: v }) },
+  });
+
+  return null;
+}
+
 /* ── MAIN APP ─────────────────────────────────────────────────── */
 export default function App() {
   useWebSocket();
@@ -120,17 +117,18 @@ export default function App() {
 
   return (
     <div className="app-container">
+      <Leva collapsed={false} />
+      <DebugControls />
+
       {/* ── 3D Canvas ─────────────────────── */}
       <Canvas
         camera={{ position: [12, 8, 12], fov: 50 }}
         shadows
-        dpr={[1, 2]}
-        gl={{ antialias: true, alpha: false }}
+        dpr={[1, 1.5]}
+        gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
         style={{ background: '#050a15' }}
       >
         <Suspense fallback={null}>
-          <FPSTracker />
-
           {/* Lighting */}
           <ambientLight intensity={0.3} color="#4466aa" />
           <directionalLight
@@ -138,13 +136,18 @@ export default function App() {
             intensity={1.2}
             color="#ffe8c0"
             castShadow
-            shadow-mapSize-width={2048}
-            shadow-mapSize-height={2048}
+            shadow-mapSize-width={1024}
+            shadow-mapSize-height={1024}
+            shadow-camera-far={50}
+            shadow-camera-left={-10}
+            shadow-camera-right={10}
+            shadow-camera-top={10}
+            shadow-camera-bottom={-10}
           />
-          <pointLight position={[0, 5, 0]} intensity={0.4} color="#00ffcc" distance={20} />
+          <pointLight position={[0, 5, 0]} intensity={0.4} color="#00ffcc" distance={15} />
 
           {/* Environment */}
-          <Stars radius={100} depth={50} count={3000} factor={4} saturation={0} fade speed={1} />
+          <Stars radius={100} depth={50} count={1000} factor={4} saturation={0} fade={false} speed={0.5} />
           <Ground />
           <fog attach="fog" args={['#050a15', 20, 60]} />
 

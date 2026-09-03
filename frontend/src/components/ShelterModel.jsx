@@ -5,6 +5,7 @@
  */
 import React, { useRef, useMemo, useCallback } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { a, useSpring } from '@react-spring/three';
 import * as THREE from 'three';
 import useSimulationStore from '../store/simulationStore';
 
@@ -44,7 +45,7 @@ function stressToColor(stress) {
 }
 
 /* ── Interactive Part (Wall / Roof / Floor / Window) ──────────── */
-function ShelterPart({ name, geometry, position, color, emissiveIntensity, opacity = 1 }) {
+function ShelterPart({ name, size, position, color, emissiveIntensity, opacity = 1 }) {
   const meshRef = useRef();
   const hoveredPart = useSimulationStore((s) => s.hoveredPart);
   const selectedPart = useSimulationStore((s) => s.selectedPart);
@@ -53,20 +54,26 @@ function ShelterPart({ name, geometry, position, color, emissiveIntensity, opaci
 
   const isHovered = hoveredPart === name;
   const isSelected = selectedPart === name;
-  const outlineScale = isHovered || isSelected ? 1.02 : 1.0;
+  
+  // Smoothly animate scale and position instead of rebuilding geometry
+  const { animatedScale, animatedPosition } = useSpring({
+    animatedScale: isHovered || isSelected ? [size[0]*1.02, size[1]*1.02, size[2]*1.02] : size,
+    animatedPosition: position,
+    config: { mass: 1, tension: 280, friction: 60 }
+  });
 
   return (
-    <mesh
+    <a.mesh
       ref={meshRef}
-      position={position}
-      scale={[outlineScale, outlineScale, outlineScale]}
+      position={animatedPosition}
+      scale={animatedScale}
       onPointerOver={(e) => { e.stopPropagation(); setHoveredPart(name); document.body.style.cursor = 'pointer'; }}
       onPointerOut={() => { setHoveredPart(null); document.body.style.cursor = 'default'; }}
       onClick={(e) => { e.stopPropagation(); setSelectedPart(isSelected ? null : name); }}
       castShadow
       receiveShadow
     >
-      {geometry}
+      <boxGeometry args={[1, 1, 1]} />
       <meshStandardMaterial
         color={color}
         emissive={color}
@@ -77,7 +84,7 @@ function ShelterPart({ name, geometry, position, color, emissiveIntensity, opaci
         opacity={opacity}
         side={THREE.DoubleSide}
       />
-    </mesh>
+    </a.mesh>
   );
 }
 
@@ -115,7 +122,7 @@ export default function ShelterModel() {
       {/* ── Floor ─────────────────────────── */}
       <ShelterPart
         name="floor"
-        geometry={<boxGeometry args={[length, 0.1, width]} />}
+        size={[length, 0.1, width]}
         position={[0, -height / 2 - explodeOffset, 0]}
         color={new THREE.Color(0.3, 0.3, 0.3)}
         emissiveIntensity={0.05}
@@ -124,7 +131,7 @@ export default function ShelterModel() {
       {/* ── Front Wall ────────────────────── */}
       <ShelterPart
         name="wall-front"
-        geometry={<boxGeometry args={[length, height, wallThickness]} />}
+        size={[length, height, wallThickness]}
         position={[0, 0, width / 2 + explodeOffset]}
         color={displayColor}
         emissiveIntensity={emissive}
@@ -133,7 +140,7 @@ export default function ShelterModel() {
       {/* ── Back Wall ─────────────────────── */}
       <ShelterPart
         name="wall-back"
-        geometry={<boxGeometry args={[length, height, wallThickness]} />}
+        size={[length, height, wallThickness]}
         position={[0, 0, -width / 2 - explodeOffset]}
         color={displayColor}
         emissiveIntensity={emissive}
@@ -142,7 +149,7 @@ export default function ShelterModel() {
       {/* ── Left Wall ─────────────────────── */}
       <ShelterPart
         name="wall-left"
-        geometry={<boxGeometry args={[wallThickness, height, width]} />}
+        size={[wallThickness, height, width]}
         position={[-length / 2 - explodeOffset, 0, 0]}
         color={displayColor}
         emissiveIntensity={emissive}
@@ -151,7 +158,7 @@ export default function ShelterModel() {
       {/* ── Right Wall (with window cutout) ─ */}
       <ShelterPart
         name="wall-right"
-        geometry={<boxGeometry args={[wallThickness, height, width]} />}
+        size={[wallThickness, height, width]}
         position={[length / 2 + explodeOffset, 0, 0]}
         color={displayColor}
         emissiveIntensity={emissive}
@@ -160,7 +167,7 @@ export default function ShelterModel() {
       {/* ── Window (on right wall) ────────── */}
       <ShelterPart
         name="window"
-        geometry={<boxGeometry args={[wallThickness + 0.02, height * 0.4, width * 0.3]} />}
+        size={[wallThickness + 0.02, height * 0.4, width * 0.3]}
         position={[length / 2 + explodeOffset, height * 0.1, 0]}
         color={new THREE.Color(0.6, 0.85, 1.0)}
         emissiveIntensity={0.15}
@@ -170,7 +177,7 @@ export default function ShelterModel() {
       {/* ── Roof ──────────────────────────── */}
       <ShelterPart
         name="roof"
-        geometry={<boxGeometry args={[length + 0.3, 0.15, width + 0.3]} />}
+        size={[length + 0.3, 0.15, width + 0.3]}
         position={[0, height / 2 + explodeOffset, 0]}
         color={displayColor}
         emissiveIntensity={emissive * 0.8}
