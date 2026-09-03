@@ -36,6 +36,18 @@
   box-shadow: 0 0 12px rgba(0, 255, 200, 0.25);
 }
 
+.control-bar button.dashboard-btn {
+  background: rgba(255, 150, 0, 0.15);
+  border-color: rgba(255, 150, 0, 0.4);
+  color: #ffcc88;
+}
+
+.control-bar button.dashboard-btn:hover {
+  background: rgba(255, 150, 0, 0.3);
+  border-color: #ffaa00;
+  box-shadow: 0 0 12px rgba(255, 150, 0, 0.3);
+}
+
 @media (max-width: 768px) {
   .control-bar button {
     padding: 12px 16px;

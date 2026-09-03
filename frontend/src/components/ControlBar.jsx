@@ -28,6 +28,13 @@ export default function ControlBar() {
       >
         🔥 {stressMapVisible ? 'Thermal' : 'Stress Map'}
       </button>
+      <button
+        className="dashboard-btn"
+        onClick={() => window.open('http://localhost:8501', '_blank')}
+        title="Open Advanced Analytics Dashboard"
+      >
+        📊 Open Analytics Dashboard
+      </button>
     </div>
   );
 }

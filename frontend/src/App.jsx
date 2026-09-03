@@ -111,7 +111,25 @@ function DebugControls() {
       options: ['PUF', 'Corrugated Steel', 'Titanium'],
       value: panels.materials.roof.name,
       onChange: (v) => setPanels({ materials: { ...panels.materials, roof: { ...panels.materials.roof, name: v } } })
+    },
+    windowMaterial: {
+      options: ['Glass (Single Pane)', 'Glass (Double Pane)', 'Polycarbonate'],
+      value: panels.materials.windows.name,
+      onChange: (v) => setPanels({ materials: { ...panels.materials, windows: { ...panels.materials.windows, name: v } } })
     }
+  });
+
+  useControls('Tactical & Biological', {
+    occupants: { 
+      value: panels.status.occupants, min: 1, max: 20, step: 1, 
+      onChange: (v) => setPanels({ status: { ...panels.status, occupants: v, maxOccupants: v } }) 
+    },
+    targetSurvivalTemp: { 
+      value: panels.thermal.target, min: -10, max: 20, step: 1, 
+      onChange: (v) => setPanels({ thermal: { ...panels.thermal, target: v } }) 
+    },
+    ventilationACH: { value: 0.5, min: 0.1, max: 2.0, step: 0.1 },
+    metabolicHeatW: { value: 175, min: 100, max: 300, step: 25 },
   });
 
   useControls('AI Optimizer (NSGA-II)', {
