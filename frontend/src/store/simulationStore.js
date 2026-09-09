@@ -29,6 +29,10 @@ const useSimulationStore = create((set, get) => ({
     wallMaterial: 'Brick',
     roofMaterial: 'Polyurethane Panel (PUF)',
     windowMaterial: 'Glass (Double Pane)',
+    shape: 'box',                // 'box' | 'dome' | 'quonset'
+    orientation: 180,            // degrees (0=North, 180=South)
+    floorInsulationR: 2.0,       // m²K/W floor insulation R-value
+    nightShutters: true,         // Deploy insulated thermal blankets at night
   },
   setShelter: (data) => set({ shelter: { ...get().shelter, ...data } }),
 

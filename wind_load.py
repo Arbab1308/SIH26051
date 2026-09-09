@@ -103,9 +103,20 @@ def run_wind_analysis(shelter_config, hourly_wind_speeds):
     wall_area = shelter_config.get("wall_area", 40)
     roof_area = shelter_config.get("roof_area", 24)
     altitude = shelter_config.get("altitude_m", 4500)
+    shape = shelter_config.get("shape", "box")
     
-    wall_safe_wind = get_max_safe_wind(wall_mat, span_m=3.0, drag_coeff=1.3, altitude_m=altitude)
-    roof_safe_wind = get_max_safe_wind(roof_mat, span_m=3.0, drag_coeff=0.8, altitude_m=altitude)
+    if shape == "dome":
+        wall_drag_coeff = 0.52
+        roof_drag_coeff = 0.52
+    elif shape == "quonset":
+        wall_drag_coeff = 0.8
+        roof_drag_coeff = 0.8
+    else:
+        wall_drag_coeff = 1.3
+        roof_drag_coeff = 0.8
+    
+    wall_safe_wind = get_max_safe_wind(wall_mat, span_m=3.0, drag_coeff=wall_drag_coeff, altitude_m=altitude)
+    roof_safe_wind = get_max_safe_wind(roof_mat, span_m=3.0, drag_coeff=roof_drag_coeff, altitude_m=altitude)
     
     max_wind_experienced = max(hourly_wind_speeds) if hourly_wind_speeds else 0
     
@@ -130,10 +141,10 @@ def run_wind_analysis(shelter_config, hourly_wind_speeds):
     wall_props = MATERIAL_STRUCTURAL.get(wall_mat, {"tensile_mpa": 1.0, "thickness_m": 0.1})
     roof_props = MATERIAL_STRUCTURAL.get(roof_mat, {"tensile_mpa": 1.0, "thickness_m": 0.1})
     
-    wall_force = calculate_wind_force(max_wind_experienced, wall_area, 1.3, altitude)
+    wall_force = calculate_wind_force(max_wind_experienced, wall_area, wall_drag_coeff, altitude)
     wall_stress = calculate_material_stress(wall_force, wall_area, wall_props["thickness_m"], 3.0)
     
-    roof_force = calculate_wind_force(max_wind_experienced, roof_area, 0.8, altitude)
+    roof_force = calculate_wind_force(max_wind_experienced, roof_area, roof_drag_coeff, altitude)
     roof_stress = calculate_material_stress(roof_force, roof_area, roof_props["thickness_m"], 3.0)
     
     return {

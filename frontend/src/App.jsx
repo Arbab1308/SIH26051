@@ -101,6 +101,29 @@ function DebugControls() {
     wallThickness: { value: shelter.wallThickness, min: 0.05, max: 0.5, step: 0.05, onChange: (v) => setShelter({ wallThickness: v }) },
   });
 
+  useControls('Architecture & Shape', {
+    shelterShape: {
+      options: ['box', 'dome', 'quonset'],
+      value: shelter.shape,
+      onChange: (v) => setShelter({ shape: v }),
+    },
+    'Orientation (0°=N, 180°=S)': {
+      value: shelter.orientation, min: 0, max: 360, step: 5,
+      onChange: (v) => setShelter({ orientation: v }),
+    },
+  });
+
+  useControls('Passive Physics', {
+    'Floor Insulation R-Value': {
+      value: shelter.floorInsulationR, min: 0.5, max: 8.0, step: 0.5,
+      onChange: (v) => setShelter({ floorInsulationR: v }),
+    },
+    'Deploy Night Shutters': {
+      value: shelter.nightShutters,
+      onChange: (v) => setShelter({ nightShutters: v }),
+    },
+  });
+
   useControls('Materials (Phase 7 Preview)', {
     wallMaterial: {
       options: ['Brick', 'Concrete', 'PUF Sandwich Panel', 'Carbon Fiber'],

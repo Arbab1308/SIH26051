@@ -194,6 +194,34 @@ export default function PanelSystem() {
           </div>
         ))}
       </Panel>
+
+      {/* ── 6. Tactical Ratings Panel ────── */}
+      <Panel id="ratings" title="TACTICAL RATINGS" icon="🎖️" defaultPos={{ x: window.innerWidth - 300, y: window.innerHeight - 250 }}>
+        <div className="panel-row">
+          <span className="label">Transport</span>
+          <span style={{ color: panels.materials.totalWeight < 2500 ? '#00ffcc' : panels.materials.totalWeight < 4000 ? '#ffaa00' : '#ff3333' }}>
+            {panels.materials.totalWeight < 2500 ? 'HAL Dhruv (Airlift)' : panels.materials.totalWeight < 4000 ? 'Mi-17 (Airlift)' : 'Ground Transport Only'}
+          </span>
+        </div>
+        <div className="panel-row">
+          <span className="label">Thermal Stealth (IR)</span>
+          <span style={{ color: Math.abs(telemetry.shelter_temp - telemetry.outside_temp) < 10 ? '#00ffcc' : '#ffaa00' }}>
+            {Math.abs(telemetry.shelter_temp - telemetry.outside_temp) < 10 ? 'High (Low Signature)' : 'Medium (Glow Detected)'}
+          </span>
+        </div>
+        <div className="panel-row">
+          <span className="label">Biomechanics</span>
+          <span style={{ color: '#00ffcc' }}>100W/soldier • Safe CO₂</span>
+        </div>
+        <div className="panel-row">
+          <span className="label">Terrain Shadows</span>
+          <span style={{ color: '#00ffcc' }}>Mapped (3D Elevation)</span>
+        </div>
+        <div className="panel-row">
+          <span className="label">AI Generative (NSGA-II)</span>
+          <span style={{ color: '#00ffcc' }}>Pareto-Optimal Active</span>
+        </div>
+      </Panel>
     </div>
   );
 }

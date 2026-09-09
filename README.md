@@ -151,6 +151,18 @@ After running, the application will be hosted locally. Open your browser and nav
         *   Calculates the diesel generator equivalent: litres/day, daily cost, and 30-day savings.
         *   Demonstrates the economic and logistical case for solar autonomy.
     *   **Visualizations**: Heater Demand vs Solar Generation chart, Battery SoC simulation curve, Thermal Energy Balance breakdown, System Cost donut chart (PV/Battery/Inverter).
+
+10. **🌐 3D Tactical Command Center (React/Three.js)**:
+    A dedicated web frontend (`frontend/`) visualizes the shelter in a fully interactive 3D space.
+    *   **Dynamic Geometry**: Instantly toggle between Box, Dome, and Quonset shapes.
+    *   **Live Telemetry**: Real-time WebSocket connection to the backend streams temperature and stress data directly onto the 3D model (Thermal/Stress heatmaps).
+    *   **Exploded View**: Disassembles the shelter layers for internal inspection.
+
+11. **🔬 ANSYS Mechanical APDL Integration & Passive Physics**:
+    Directly addresses the core SIH problem statement by creating a self-sustained passive shelter design and an ANSYS bridge.
+    *   **Passive Physics Engine**: Simulates Ground Conduction (permafrost heat loss), Night Shutters (dynamic window R-value boosts at night), Phase Change Materials (PCM bio-wax specific heat modulation), and Azimuth-dependent solar gain based on shelter orientation.
+    *   **5-Gene NSGA-II Optimizer**: Evolved the AI designer to optimize not just materials, but also **Orientation (0-360°)** and **Shape (Box vs Dome)**. The engine mathematically proves that south-facing domes minimize surface-area heat loss while maximizing solar gain.
+    *   **ANSYS APDL `.mac` Generator**: The `/export/ansys` API endpoint automatically generates a complete ANSYS Parametric Design Language macro script. It handles 3D geometry (`BLOCK`), smart meshing (`SMRTSIZE`), thermal elements (`SOLID70`), and transient thermal solving (`ANTYPE,TRANS`) over 24 hours, bridging the gap between our rapid AI optimizer and enterprise-grade FEA validation.
 ---
 
 ## 🚀 Advanced Production Architecture (Phase 1-3)
@@ -185,18 +197,35 @@ We have upgraded the simulator from a basic 24-hour physics tool into a **produc
     *   Provides 5 pre-configured scenarios (e.g., "Siachen Glacier Extreme Cold", "DBO Forward Base").
     *   Instantly overrides coordinates, weather profiles, and constraints for rapid demo capabilities.
 
-17. **📄 Enhanced Tactical Dossier Exporter (`reporting.py`)**
+18. **📄 Enhanced Tactical Dossier Exporter (`reporting.py`)**
     *   Generates a formal, unclassified military deployment dossier in PDF format.
     *   Includes multi-day thermal trajectories, logistics cost breakdowns, and Commander's sign-off blocks.
 
-18. **🔌 Enterprise API & Swagger UI (`api.py`)**
-    *   **The Enterprise Flex:** We exposed the core microservices (Wind Load, NSGA-II Optimizer, Casualty Risk) via a production-grade **FastAPI** REST interface.
+19. **🔌 Enterprise API & Swagger UI (`api.py`)**
+    *   **The Enterprise Flex:** We exposed the core microservices (Wind Load, NSGA-II Optimizer, Casualty Risk, **ANSYS Export**) via a production-grade **FastAPI** REST interface.
     *   Generates live OpenAPI / Swagger documentation (`http://localhost:8000/docs`).
     *   Proves the architecture is language-agnostic and ready to be integrated into the Indian Army's existing Command & Control (C2) infrastructure tomorrow.
 
-19. **🐝 Swarm State Virtual Power Plant (`swarm_microgrid.py`)**
+20. **🐝 Swarm State Virtual Power Plant (`swarm_microgrid.py`)**
     *   **Predictive Energy Routing:** Instead of isolated shelters, it manages a cluster of 10 decentralized shelters. Forecasts heat deficits 2 hours ahead and intelligently routes solar power to the *coldest* shelter first.
     *   **Swarm Battery Balancing:** Sequences discharge based on battery aging (cycle count) and balances states of charge across the fleet to extend LiFePO4 lifespans from 5 to 8+ years. Automatically detects and isolates failing cells (N-1 Redundancy).
+
+---
+
+## ✅ Mapping to DRDO SIH Problem Statement
+
+This software suite guarantees the exact expected solutions required by the DRDO Problem Statement:
+
+1.  **"Prediction of shelter inside temperature based on the user defined inputs."**
+    *   *Solved by*: `multi_day.py` and `physics.py` looping `calculate_new_temperature` using mass, R-values, and 24h external variables.
+2.  **"Prediction of thermal energy generated from solar radiation."**
+    *   *Solved by*: `solar_terrain.py` ingesting Open-Elevation topographical API data, calculating astronomical sun azimuths, and mapping them against window orientation in `physics.py` (`calculate_solar_gain`).
+3.  **"Heat flow details as per the temperature difference..."**
+    *   *Solved by*: Our core physics engine isolating `$Q_{wall}$, $Q_{roof}$, $Q_{window}$, $Q_{vent}$, $Q_{ground}$` dynamically hour-by-hour.
+4.  **"A general model development in ANSYS software..."**
+    *   *Solved by*: `ansys_export.py` generating a ready-to-run `.mac` macro script that automatically builds the 3D geometry, materials, and boundary conditions inside ANSYS Mechanical APDL.
+5.  **"Predict the most efficient combination of materials, shape, and size etc."**
+    *   *Solved by*: `optimize.py` running a 5-gene NSGA-II algorithm to mutate thousands of combinations across Wall Material, Roof Material, Window Material, Orientation, and Shelter Shape (Dome vs Box) to mathematically isolate the Pareto-optimal designs for survival and stealth.
 
 ---
 

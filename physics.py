@@ -1,6 +1,10 @@
 import math
 from functools import lru_cache
 
+# ─── Ground / Permafrost Constants ─────────────────────────────────────────────
+GROUND_TEMP_PERMAFROST = -15.0  # °C — Ladakh frozen ground temperature
+DEFAULT_FLOOR_R_VALUE = 0.5     # m²K/W — bare concrete on permafrost
+
 @lru_cache(maxsize=None)
 def calculate_heat_transfer(t_inside, t_outside, area, r_value):
     """
@@ -19,6 +23,63 @@ def calculate_solar_gain(solar_irradiance, window_area, absorptivity=0.7):
     Returns: Heat gain in Watts
     """
     return solar_irradiance * window_area * absorptivity
+
+
+# ─── Ground Conduction (Permafrost) ────────────────────────────────────────────
+@lru_cache(maxsize=None)
+def calculate_ground_conduction(t_inside, floor_area, floor_r_value=None,
+                                 ground_temp=GROUND_TEMP_PERMAFROST):
+    """
+    Calculates heat lost downward through the floor into frozen permafrost.
+    Formula: Q = floor_area × (T_inside − T_ground) / R_floor
+    Default T_ground = −15°C (Ladakh permafrost).
+    Returns: Heat loss in Watts (positive = heat escaping downward)
+    """
+    if floor_r_value is None:
+        floor_r_value = DEFAULT_FLOOR_R_VALUE
+    if floor_r_value <= 0:
+        return 0.0
+    delta_t = t_inside - ground_temp
+    if delta_t <= 0:
+        return 0.0  # Ground is warmer than shelter — no loss
+    return delta_t * floor_area / floor_r_value
+
+
+# ─── Night Shutters ────────────────────────────────────────────────────────────
+NIGHT_SHUTTER_R_BOOST = 2.5  # m²K/W added when insulated thermal blankets deployed
+
+def get_effective_window_r_value(base_r_value, solar_irradiance,
+                                  night_shutters_enabled=True):
+    """
+    Returns the effective window R-value. During nighttime (solar irradiance = 0)
+    with shutters enabled, troops pull down insulated thermal blankets adding
+    R = 2.5 m²K/W to the window.
+    """
+    if night_shutters_enabled and solar_irradiance <= 0:
+        return base_r_value + NIGHT_SHUTTER_R_BOOST
+    return base_r_value
+
+
+# ─── Phase Change Materials (PCM) ──────────────────────────────────────────────
+def calculate_pcm_specific_heat(base_cp, current_temp, transition_temp=18.0,
+                                 active_cp=14000.0, bandwidth=2.0):
+    """
+    Modulates the specific heat capacity for Phase Change Materials (bio-wax).
+    When shelter temperature is within ±bandwidth of the transition temperature,
+    the effective cp spikes dramatically (simulating latent heat absorption/release).
+
+    Args:
+        base_cp: Normal specific heat capacity (J/kg·K)
+        current_temp: Current shelter temperature (°C)
+        transition_temp: PCM melting/freezing point (default 18°C)
+        active_cp: Elevated cp during phase transition (default 14000 J/kg·K)
+        bandwidth: Half-width of the transition zone (default ±2°C)
+
+    Returns: Effective specific heat in J/kg·K
+    """
+    if abs(current_temp - transition_temp) <= bandwidth:
+        return active_cp
+    return base_cp
 
 def calculate_new_temperature(t_current, q_gain, q_loss, mass, specific_heat, dt_seconds=3600):
     """
@@ -100,6 +161,9 @@ MATERIALS = {
     "Glass (Single Pane)":          {"r_value": 0.15, "density": 2500, "specific_heat": 750,  "cost_per_kg": 60},
     "Glass (Double Pane)":          {"r_value": 0.35, "density": 2500, "specific_heat": 750,  "cost_per_kg": 120},
     "Polycarbonate Sheet":          {"r_value": 0.28, "density": 1200, "specific_heat": 1200, "cost_per_kg": 250},
+    # === PHASE CHANGE MATERIALS (PCM) ===
+    "PCM Bio-Wax Lining":           {"r_value": 1.20, "density": 850,  "specific_heat": 2100, "cost_per_kg": 350,
+                                      "pcm_transition_temp": 18.0, "pcm_latent_heat": 200000, "pcm_active_cp": 14000},
 }
 
 # --- Integer-Indexed Material Lookup for Genetic Algorithm ---
@@ -113,6 +177,7 @@ WALL_MATERIALS = [
     "Fiberglass Batt", "Mud Brick (Adobe)", "Steel Sheet (Corrugated)",
     "Aluminium Composite", "Bamboo Composite", "HDPE Fabric (Heavy Duty)",
     "Nomex Honeycomb",
+    "PCM Bio-Wax Lining",
 ]
 
 # Materials suitable for roofs (index -> name)

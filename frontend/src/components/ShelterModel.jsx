@@ -88,6 +88,94 @@ function ShelterPart({ name, size, position, color, emissiveIntensity, opacity =
   );
 }
 
+/* ── Compass Indicator (shows shelter orientation) ────────── */
+function CompassIndicator({ orientation, radius }) {
+  const ringRef = useRef();
+  const arrowRef = useRef();
+  const angle = THREE.MathUtils.degToRad(-orientation + 90); // Convert to Three.js coordinate system
+
+  return (
+    <group>
+      {/* Compass ring */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+        <ringGeometry args={[radius + 0.3, radius + 0.5, 64]} />
+        <meshStandardMaterial color="#00ccff" emissive="#00ccff" emissiveIntensity={0.3} transparent opacity={0.4} side={THREE.DoubleSide} />
+      </mesh>
+      {/* Direction arrow (points toward window orientation) */}
+      <mesh ref={arrowRef} position={[Math.cos(angle) * (radius + 0.8), 0.05, -Math.sin(angle) * (radius + 0.8)]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.2, 3]} />
+        <meshStandardMaterial color="#ff4444" emissive="#ff4444" emissiveIntensity={0.6} side={THREE.DoubleSide} />
+      </mesh>
+      {/* North marker */}
+      <mesh position={[0, 0.05, -(radius + 0.8)]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.15, 16]} />
+        <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={0.5} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  );
+}
+
+/* ── Dome Shell (Geodesic Hemisphere) ────────────────────── */
+function DomeShell({ radius, color, emissiveIntensity }) {
+  const hoveredPart = useSimulationStore((s) => s.hoveredPart);
+  const selectedPart = useSimulationStore((s) => s.selectedPart);
+  const setHoveredPart = useSimulationStore((s) => s.setHoveredPart);
+  const setSelectedPart = useSimulationStore((s) => s.setSelectedPart);
+  const isActive = hoveredPart === 'dome-shell' || selectedPart === 'dome-shell';
+
+  return (
+    <mesh
+      position={[0, 0, 0]}
+      onPointerOver={(e) => { e.stopPropagation(); setHoveredPart('dome-shell'); document.body.style.cursor = 'pointer'; }}
+      onPointerOut={() => { setHoveredPart(null); document.body.style.cursor = 'default'; }}
+      onClick={(e) => { e.stopPropagation(); setSelectedPart(selectedPart === 'dome-shell' ? null : 'dome-shell'); }}
+      castShadow receiveShadow
+      scale={isActive ? [1.02, 1.02, 1.02] : [1, 1, 1]}
+    >
+      <sphereGeometry args={[radius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+      <meshStandardMaterial
+        color={color}
+        emissive={color}
+        emissiveIntensity={emissiveIntensity}
+        roughness={0.5}
+        metalness={0.15}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
+/* ── Quonset Shell (Half-Cylinder) ───────────────────────── */
+function QuonsetShell({ radius, shelterLength, color, emissiveIntensity }) {
+  const hoveredPart = useSimulationStore((s) => s.hoveredPart);
+  const selectedPart = useSimulationStore((s) => s.selectedPart);
+  const setHoveredPart = useSimulationStore((s) => s.setHoveredPart);
+  const setSelectedPart = useSimulationStore((s) => s.setSelectedPart);
+  const isActive = hoveredPart === 'quonset-shell' || selectedPart === 'quonset-shell';
+
+  return (
+    <mesh
+      position={[0, 0, 0]}
+      rotation={[0, 0, Math.PI / 2]}
+      onPointerOver={(e) => { e.stopPropagation(); setHoveredPart('quonset-shell'); document.body.style.cursor = 'pointer'; }}
+      onPointerOut={() => { setHoveredPart(null); document.body.style.cursor = 'default'; }}
+      onClick={(e) => { e.stopPropagation(); setSelectedPart(selectedPart === 'quonset-shell' ? null : 'quonset-shell'); }}
+      castShadow receiveShadow
+      scale={isActive ? [1.02, 1.02, 1.02] : [1, 1, 1]}
+    >
+      <cylinderGeometry args={[radius, radius, shelterLength, 32, 1, true, 0, Math.PI]} />
+      <meshStandardMaterial
+        color={color}
+        emissive={color}
+        emissiveIntensity={emissiveIntensity}
+        roughness={0.5}
+        metalness={0.15}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
 /* ── Main Shelter Model ──────────────────────────────────────── */
 export default function ShelterModel() {
   const groupRef = useRef();
@@ -96,7 +184,7 @@ export default function ShelterModel() {
   const explodedView = useSimulationStore((s) => s.explodedView);
   const stressMapVisible = useSimulationStore((s) => s.stressMapVisible);
 
-  const { length, width, height, wallThickness } = shelter;
+  const { length, width, height, wallThickness, shape, orientation } = shelter;
   const explodeOffset = explodedView ? 0.8 : 0;
 
   // Thermal color based on current shelter temperature
@@ -117,6 +205,60 @@ export default function ShelterModel() {
     }
   });
 
+  // Dome/Quonset radius derived from shelter dimensions
+  const domeRadius = Math.max(length, width, height) / 1.5;
+  const quonsetRadius = Math.max(width, height) / 1.8;
+
+  // ── DOME Shape ────────────────────────────────
+  if (shape === 'dome') {
+    return (
+      <group ref={groupRef} position={[0, 0, 0]}>
+        {/* Floor */}
+        <ShelterPart
+          name="floor"
+          size={[domeRadius * 2, 0.1, domeRadius * 2]}
+          position={[0, -0.05, 0]}
+          color={new THREE.Color(0.3, 0.3, 0.3)}
+          emissiveIntensity={0.05}
+        />
+        {/* Dome Shell */}
+        <DomeShell
+          radius={domeRadius}
+          color={displayColor}
+          emissiveIntensity={emissive}
+        />
+        {/* Compass */}
+        <CompassIndicator orientation={orientation || 180} radius={domeRadius} />
+      </group>
+    );
+  }
+
+  // ── QUONSET Shape ─────────────────────────────
+  if (shape === 'quonset') {
+    return (
+      <group ref={groupRef} position={[0, 0, 0]}>
+        {/* Floor */}
+        <ShelterPart
+          name="floor"
+          size={[length, 0.1, quonsetRadius * 2]}
+          position={[0, -0.05, 0]}
+          color={new THREE.Color(0.3, 0.3, 0.3)}
+          emissiveIntensity={0.05}
+        />
+        {/* Quonset Shell */}
+        <QuonsetShell
+          radius={quonsetRadius}
+          shelterLength={length}
+          color={displayColor}
+          emissiveIntensity={emissive}
+        />
+        {/* Compass */}
+        <CompassIndicator orientation={orientation || 180} radius={quonsetRadius + 0.5} />
+      </group>
+    );
+  }
+
+  // ── BOX Shape (Default) ───────────────────────
   return (
     <group ref={groupRef} position={[0, height / 2, 0]}>
       {/* ── Floor ─────────────────────────── */}
@@ -182,6 +324,9 @@ export default function ShelterModel() {
         color={displayColor}
         emissiveIntensity={emissive * 0.8}
       />
+
+      {/* ── Compass Indicator ─────────────── */}
+      <CompassIndicator orientation={orientation || 180} radius={Math.max(length, width) / 2 + 0.5} />
     </group>
   );
 }

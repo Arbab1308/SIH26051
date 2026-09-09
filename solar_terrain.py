@@ -333,6 +333,29 @@ def apply_shadow_to_irradiance(base_irradiance, shadow_mask, diffuse_fraction=0.
     return modified
 
 
+# ─── Solar Azimuth Factor (Orientation-Dependent Gain) ─────────────────────────
+
+def calculate_azimuth_factor(sun_azimuth, shelter_orientation=180.0):
+    """
+    Calculate the solar gain reduction factor based on the angle between the
+    sun's azimuth and the shelter window's facing direction.
+
+    A window facing Due South (orientation = 180°) maximizes gain when the sun
+    is at azimuth ~180° (solar noon in the Northern Hemisphere).
+
+    Args:
+        sun_azimuth: Current sun azimuth in degrees (0-360, clockwise from North)
+        shelter_orientation: Direction the window faces in degrees
+                            (0=North, 90=East, 180=South, 270=West)
+
+    Returns:
+        Factor between 0.0 (sun behind shelter) and 1.0 (sun directly facing window)
+    """
+    angle_diff = math.radians(sun_azimuth - shelter_orientation)
+    factor = math.cos(angle_diff)
+    return max(0.0, factor)
+
+
 # ─── Full Pipeline ─────────────────────────────────────────────────────────────
 
 def run_terrain_shadow_pipeline(lat, lon, date, base_irradiance,

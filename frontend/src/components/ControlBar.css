@@ -48,6 +48,25 @@
   box-shadow: 0 0 12px rgba(255, 150, 0, 0.3);
 }
 
+.control-bar button.ansys-btn {
+  background: rgba(0, 200, 255, 0.12);
+  border-color: rgba(0, 200, 255, 0.5);
+  color: #88eeff;
+  animation: ansys-glow 2s ease-in-out infinite alternate;
+}
+
+.control-bar button.ansys-btn:hover {
+  background: rgba(0, 200, 255, 0.25);
+  border-color: #00ccff;
+  box-shadow: 0 0 20px rgba(0, 200, 255, 0.5), 0 0 40px rgba(0, 200, 255, 0.2);
+  color: #ffffff;
+}
+
+@keyframes ansys-glow {
+  0% { box-shadow: 0 0 6px rgba(0, 200, 255, 0.2); }
+  100% { box-shadow: 0 0 16px rgba(0, 200, 255, 0.45), 0 0 30px rgba(0, 200, 255, 0.15); }
+}
+
 @media (max-width: 768px) {
   .control-bar button {
     padding: 12px 16px;

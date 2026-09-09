@@ -61,6 +61,8 @@ MATERIAL_SUPPLY = {
     "Glass (Single Pane)": {"base_cost": 60, "tier_availability": ["A", "B", "C"]},
     "Glass (Double Pane)": {"base_cost": 120, "tier_availability": ["A", "B", "C"]},
     "Polycarbonate Sheet": {"base_cost": 250, "tier_availability": ["A", "B", "C", "D"]},
+    # PCM
+    "PCM Bio-Wax Lining": {"base_cost": 350, "tier_availability": ["A", "B", "C"]},
 }
 @lru_cache(maxsize=None)
 def get_location(name):

@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 import datetime
@@ -17,6 +18,7 @@ from optimize import run_optimization
 from weather_service import fetch_weather
 from casualty_risk import calculate_wind_chill, frostbite_risk
 from swarm_microgrid import ShelterNode, route_swarm_energy, manage_swarm_batteries
+from ansys_export import generate_ansys_macro
 
 app = FastAPI(
     title="DRDO Shelter Simulator API",
@@ -189,8 +191,68 @@ async def manage_swarm_fleet(request: Request, req: SwarmRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 # ==========================================
-# 5. WEBSOCKET TELEMETRY STREAM
+# 5. ANSYS APDL EXPORT API
+# ==========================================
+@app.get("/export/ansys", tags=["ANSYS Integration"])
+@limiter.limit("10/minute")
+async def export_ansys_script(
+    request: Request,
+    wall_material: str = Query(default="Polyurethane Panel (PUF)", description="Wall material name"),
+    roof_material: str = Query(default="Polyurethane Panel (PUF)", description="Roof material name"),
+    window_material: str = Query(default="Glass (Double Pane)", description="Window material name"),
+    length: float = Query(default=6.0, ge=2.0, le=20.0, description="Shelter length (m)"),
+    width: float = Query(default=4.0, ge=2.0, le=12.0, description="Shelter width (m)"),
+    height: float = Query(default=2.5, ge=2.0, le=5.0, description="Shelter height (m)"),
+    wall_thickness: float = Query(default=0.20, ge=0.05, le=0.5, description="Wall thickness (m)"),
+    orientation: float = Query(default=180.0, ge=0.0, le=360.0, description="Window orientation (degrees from North)"),
+    occupants: int = Query(default=5, ge=1, le=50, description="Number of occupants"),
+    wind_speed_kmh: float = Query(default=50.0, ge=0.0, le=200.0, description="Design wind speed (km/h)"),
+    outdoor_temp: float = Query(default=-25.0, ge=-60.0, le=50.0, description="Outdoor temperature (°C)"),
+    floor_r_value: float = Query(default=2.0, ge=0.1, le=10.0, description="Floor insulation R-value"),
+):
+    """
+    Generates and downloads a complete ANSYS Mechanical APDL (.mac) macro script.
+    This script automates the 3D geometry creation, meshing, boundary condition
+    application, and transient thermal solve for the shelter design.
+    
+    Import this file into ANSYS Mechanical APDL to run the full 3D thermal simulation.
+    """
+    try:
+        config = {
+            "wall_material": wall_material,
+            "roof_material": roof_material,
+            "window_material": window_material,
+            "length": length,
+            "width": width,
+            "height": height,
+            "wall_thickness": wall_thickness,
+            "orientation": orientation,
+            "occupants": occupants,
+            "wind_speed_kmh": wind_speed_kmh,
+            "outdoor_temp": outdoor_temp,
+            "floor_r_value": floor_r_value,
+        }
+        macro_text = generate_ansys_macro(config)
+        
+        import io
+        buffer = io.BytesIO(macro_text.encode("utf-8"))
+        buffer.seek(0)
+        
+        return StreamingResponse(
+            buffer,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": 'attachment; filename="drdo_shelter.mac"',
+                "X-Shelter-Config": f"{wall_material}|{roof_material}|{orientation}deg"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# 6. WEBSOCKET TELEMETRY STREAM
 # ==========================================
 @app.websocket("/telemetry")
 async def telemetry_stream(websocket: WebSocket):
@@ -199,19 +261,24 @@ async def telemetry_stream(websocket: WebSocket):
     at 1 Hz (1 JSON payload per second).
     """
     await websocket.accept()
-    hour = 0
+    hour = 0.0
     try:
         while True:
-            day = hour // 24
+            day = int(hour // 24)
             hour_of_day = hour % 24
-            # Synthetic diurnal cycle
+            
+            # Smoother synthetic diurnal cycle (Reduced random noise for buttery transitions)
             base_temp = -25 + 5 * math.sin((day / 30) * math.pi)
             diurnal = 8 * math.sin(((hour_of_day - 6) / 24) * 2 * math.pi)
-            outside_temp = round(base_temp + diurnal + random.uniform(-1.5, 1.5), 1)
-            solar = max(0, round(800 * math.sin(((hour_of_day - 7) / 10) * math.pi) * random.uniform(0.6, 1.0))) if 7 <= hour_of_day <= 17 else 0
-            wind = round(20 + 30 * random.random() + (15 if hour_of_day > 18 else 0))
+            outside_temp = round(base_temp + diurnal + random.uniform(-0.1, 0.1), 1)
+            
+            solar_base = 800 * math.sin(((hour_of_day - 7) / 10) * math.pi) if 7 <= hour_of_day <= 17 else 0
+            solar = max(0, round(solar_base * random.uniform(0.95, 1.0)))
+            
+            wind = round(20 + 5 * random.random() + (5 if hour_of_day > 18 else 0))
             shelter_temp = round(outside_temp + 18 + solar / 200 - wind / 40, 1)
-            stress = round(min(1.0, 0.1 + day * 0.025 + (0.2 if wind > 50 else 0)), 2)
+            stress = round(min(1.0, 0.1 + day * 0.025 + (0.1 if wind > 50 else 0)), 2)
+            
             failures = []
             if day >= 7 and stress > 0.6:
                 failures.append('concrete_crack')
@@ -221,18 +288,20 @@ async def telemetry_stream(websocket: WebSocket):
             payload = {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "day": day,
-                "hour": hour_of_day,
+                "hour": int(hour_of_day),
                 "shelter_temp": shelter_temp,
                 "outside_temp": outside_temp,
                 "solar_irradiance": solar,
                 "wind_speed": wind,
-                "battery_soc": max(5, round(100 - day * 2.5 - (10 if hour_of_day > 18 else 0) + solar / 50)),
+                "battery_soc": max(5, round(100 - day * 2.5 - (5 if hour_of_day > 18 else 0) + solar / 50)),
                 "power_demand": round(3000 + abs(shelter_temp) * 100 + wind * 20),
                 "material_stress": stress,
                 "failures": failures,
             }
             await websocket.send_text(json.dumps(payload))
-            hour = (hour + 1) % 720
+            
+            # Slow down the simulation timeline to reduce aggressive visual fluctuations
+            hour = (hour + 0.25) % 720 
             await asyncio.sleep(1)
     except WebSocketDisconnect:
         pass
