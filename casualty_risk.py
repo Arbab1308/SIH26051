@@ -50,11 +50,12 @@ def daily_hypothermia_risk(min_temp, avg_temp, is_wet=False, inactive=True):
     else:
         base_risk = 80.0
         
-    # Modifiers
-    if is_wet:
-        base_risk += 20.0
-    if inactive:
-        base_risk += 15.0
+    # Modifiers (only apply when temperature is already dangerous)
+    if base_risk > 0:
+        if is_wet:
+            base_risk += 20.0
+        if inactive:
+            base_risk += 15.0
         
     # Thermal recovery (if average is much higher than min)
     if avg_temp > 5.0:

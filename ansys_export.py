@@ -250,7 +250,7 @@ def generate_ansys_macro(shelter_config: dict) -> str:
     lines.append("! --- Time Stepping (24-hour simulation) ---")
     lines.append("TIME,86400             ! End time = 86400 seconds (24 hours)")
     lines.append("DELTIM,300,60,3600     ! Time step: 300s default, 60s min, 3600s max")
-    lines.append("KBC,0                  ! Ramped loading (gradual)")
+    lines.append("KBC,1                  ! Stepped loading (discrete hourly BCs)")
     lines.append("")
     lines.append("OUTRES,ALL,ALL         ! Store all results at all substeps")
     lines.append("AUTOTS,ON              ! Auto time stepping")
